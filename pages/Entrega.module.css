@@ -1,0 +1,18 @@
+.panelContainer {
+    margin: 20px auto;
+    padding: 20px;
+    max-width: 600px;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    background-color: #f9f9f9;
+  }
+  
+  .panelContainer h3,
+  .panelContainer h4 {
+    text-align: center;
+    margin-bottom: 15px;
+  }
+  
+ 
+  

@@ -1,0 +1,120 @@
+/* PedidoNuevo.module.css */
+
+.formContainer {
+  font-family: 'Lucida Sans', 'Lucida Sans Regular', 'Lucida Grande', 'Lucida Sans Unicode', Geneva, Verdana, sans-serif;
+  max-width: 800px;
+  margin: 4px auto;
+  padding: 20px;
+  background-color: #f8f9fa;
+  border-radius: 8px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.navbarSpacing {
+  height: 50px; /* Ajusta según el tamaño de tu navbar */
+}
+
+/* Clases específicas para títulos */
+.tituloH3 {
+  font-size: 1.5rem;
+  color: #053160;
+  margin-bottom: 20px;
+  font-weight: 600;
+}
+
+.tituloH4 {
+  font-size: 1.2rem;
+  color: #495057;
+  margin-bottom: 15px;
+  font-weight: 500;
+}
+
+/* Clase para el formulario */
+.formulario {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Clase para las etiquetas */
+.label {
+  font-size: 1rem;
+  color: #495057;
+  margin-bottom: 5px;
+}
+
+/* Clases para los inputs y selects */
+.input, .select {
+  padding: 10px;
+  font-size: 1rem;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  margin-bottom: 15px;
+  outline: none;
+  transition: border 0.3s ease;
+  margin-right: 10px;
+}
+
+.input:focus, .select:focus {
+  border-color: #053160;
+}
+
+/* Clase para los botones */
+.button {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.button button {
+  padding: 10px 15px;
+  font-size: 1rem;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.button button:hover {
+  background-color: #f9f638;
+}
+
+.button button:disabled {
+  background-color: #6c757d;
+  cursor: not-allowed;
+}
+
+.productRow {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+  align-items: center;
+}
+
+.productRow input {
+  flex-grow: 1;
+}
+
+.productRow button {
+  padding: 8px 12px;
+  background-color: #dc3545;
+  border-radius: 5px;
+  cursor: pointer;
+  color: white;
+}
+
+.productRow button:hover {
+  background-color: #c82333;
+}
+
+.listaProductos {
+  list-style: none;
+  padding: 0;
+}
+
+.itemProducto {
+  font-size: 1rem;
+  margin-bottom: 5px;
+  color: #495057;
+}
