@@ -11,13 +11,14 @@ const Footer = () => {
 
 const styles = {
   footer: {
-    backgroundColor: '#053160', // Fondo oscuro
-    color: '#fff', // Texto blanco
-    textAlign: 'center', // Centrar el texto
-    padding: '20px 0', // Espaciado alrededor del texto
-    position: 'relative', // Mantener el footer en su lugar al final del contenido
-    width: '100%', // Ancho completo
-    bottom: '-10px', // Alineación al fondo
+    fontFamily: 'Arial, sans-serif',
+    backgroundColor: '#053160', 
+    color: '#fff', 
+    textAlign: 'center', 
+    padding: '20px 0', 
+    position: 'relative', 
+    width: '100%',
+    bottom: '-10px', 
   },
 };
 

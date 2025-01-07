@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/router'; // Importar useRouter
-import Navbar from './navbar'; // Navbar común
-import styles from './dashboard.module.css'; // Tus estilos
+import { useRouter } from 'next/router';
+import Navbar from './navbar';
+import styles from './dashboard.module.css';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -21,7 +21,7 @@ import Footer from './footer';
 ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Title, Tooltip, Legend, LineElement, PointElement);
 
 export default function Dashboard() {
-  const router = useRouter(); // Inicializar useRouter
+  const router = useRouter();
 
   const [metrics, setMetrics] = useState({
     totalOrders: 0,
@@ -41,6 +41,10 @@ export default function Dashboard() {
     datasets: [],
   });
 
+  const [products, setProducts] = useState([]);
+  const [selectedProducts, setSelectedProducts] = useState([]);
+  const [searchQuery, setSearchQuery] = useState('');
+
   useEffect(() => {
     // Datos locales para la demostración
     const demoMetrics = {
@@ -56,43 +60,104 @@ export default function Dashboard() {
       datasets: [
         {
           label: 'Órdenes',
-          data: [25, 15, 80], // Datos locales
+          data: [25, 15, 80],
           backgroundColor: ['#FF6384', '#36A2EB', '#4BC0C0'],
-        },
-      ],
-    };
-
-    const inventoryData = {
-      labels: ['Producto A', 'Producto B', 'Producto C', 'Producto D', 'Producto E'],
-      datasets: [
-        {
-          label: 'Stock Actual',
-          data: [10, 3, 50, 7, 15],
-          backgroundColor: ['#FF9F40', '#FF6384', '#36A2EB', '#4BC0C0', '#9966FF'],
         },
       ],
     };
 
     setMetrics(demoMetrics);
     setChartData(ordersByStatus);
-    setInventoryChart(inventoryData);
+
+    // Cargar datos reales de inventario desde el backend
+    fetch('/api/data?type=inventario')
+      .then((response) => response.json())
+      .then((data) => {
+        setProducts(data); // Guardar todos los productos
+
+        // Si hay productos en la base de datos, seleccionar todos por defecto
+        const allProductCodes = data.map((item) => item.CodigoProducto);
+        setSelectedProducts(allProductCodes);
+
+        // Filtrar los productos seleccionados
+        const filteredProducts = data.filter((item) => allProductCodes.includes(item.CodigoProducto));
+        const labels = filteredProducts.map((item) => item.CodigoProducto);
+        const stockData = filteredProducts.map((item) => item.Stock);
+
+        setInventoryChart({
+          labels,
+          datasets: [
+            {
+              label: 'Stock Actual',
+              data: stockData,
+              backgroundColor: '#36A2EB',
+            },
+          ],
+        });
+      })
+      .catch((error) => {
+        console.error('Error al cargar el inventario:', error);
+      });
   }, []);
+
+  useEffect(() => {
+    if (selectedProducts.length > 0) {
+      // Filtrar los productos seleccionados
+      const selectedProductData = products.filter((item) => selectedProducts.includes(item.CodigoProducto));
+
+      const labels = selectedProductData.map((item) => item.CodigoProducto);
+      const stockData = selectedProductData.map((item) => item.Stock);
+
+      setInventoryChart({
+        labels,
+        datasets: [
+          {
+            label: 'Stock Actual',
+            data: stockData,
+            backgroundColor: '#36A2EB',
+          },
+        ],
+      });
+    }
+  }, [selectedProducts, products]); // Actualizar la gráfica cuando se seleccionan productos
+
+
 
   // Funciones para manejar las redirecciones
   const handleNewOrder = () => {
-    router.push('/PedidoNuevo'); // Redirigir a la página de Nuevo Pedido
+    router.push('/PedidoNuevo');
   };
 
   const handleReceiveOrder = () => {
-    router.push('/RecibirPedido'); // Redirigir a la página de Recibir Pedido
+    router.push('/RecibirPedido');
   };
 
   const handleHomeDelivery = () => {
-    router.push('/EntregaDomicilio'); // Redirigir a la página de Entrega a Domicilio
+    router.push('/EntregaDomicilio');
   };
+
   const handleTakeAction = () => {
-    router.push('/SurtirPedido'); // Redirigir a la página de Tomar Acciones
+    router.push('/SurtirPedido');
   };
+
+
+
+  const handleSearch = (event) => {
+    setSearchQuery(event.target.value.toLowerCase());
+  };
+
+  const handleProductSelection = (e) => {
+    const selected = Array.from(e.target.selectedOptions, (option) => option.value);
+    setSelectedProducts(selected);
+  };
+
+  const filteredProducts = products.filter((product) =>
+    product.CodigoProducto.toLowerCase().includes(searchQuery) || product.CNombreProducto.toLowerCase().includes(searchQuery)
+  );
+
+  // Función para manejar los clics en los botones de acción
+ 
+
   return (
     <div>
       <Navbar />
@@ -144,10 +209,54 @@ export default function Dashboard() {
           <h2>Órdenes por Estado</h2>
           {chartData.labels.length > 0 && <Bar data={chartData} />}
         </div>
+
+        {/* Inventario por Producto - Box con Buscador */}
         <div className={styles.box}>
           <h2>Inventario por Producto</h2>
-          {inventoryChart.labels.length > 0 && <Bar data={inventoryChart} />}
+
+          {/* Buscador dentro del box */}
+          <div className={styles.searchContainer}>
+            <input
+              type="text"
+              className={styles.searchInput}
+              placeholder="Buscar por Código o Nombre de Producto..."
+              value={searchQuery}
+              onChange={handleSearch}
+            />
+          </div>
+
+          {/* Gráfica de Inventario */}
+          {filteredProducts.length > 0 && (
+            <>
+              <select
+                id="productSelect"
+                multiple
+                value={selectedProducts}
+                onChange={handleProductSelection}
+                className={styles.productSelect}
+              >
+                {filteredProducts.map((product) => (
+                  <option key={product.CodigoProducto} value={product.CodigoProducto}>
+                    {product.CodigoProducto} - {product.CNombreProducto}
+                  </option>
+                ))}
+              </select>
+              <Bar
+                data={{
+                  labels: filteredProducts.map((item) => item.CodigoProducto),
+                  datasets: [
+                    {
+                      label: 'Stock Actual',
+                      data: filteredProducts.map((item) => item.Stock),
+                      backgroundColor: '#36A2EB',
+                    },
+                  ],
+                }}
+              />
+            </>
+          )}
         </div>
+
         <div className={styles.box}>
           <h2>Pedidos por Día</h2>
           <Line
@@ -167,6 +276,7 @@ export default function Dashboard() {
           />
         </div>
       </div>
+
       <Footer />
     </div>
   );

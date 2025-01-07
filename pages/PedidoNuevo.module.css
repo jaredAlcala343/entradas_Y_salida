@@ -2,7 +2,7 @@
 
 .formContainer {
   font-family: 'Lucida Sans', 'Lucida Sans Regular', 'Lucida Grande', 'Lucida Sans Unicode', Geneva, Verdana, sans-serif;
-  max-width: 800px;
+  max-width: 950px;
   margin: 4px auto;
   padding: 20px;
   background-color: #f8f9fa;
@@ -33,6 +33,7 @@
 .formulario {
   display: flex;
   flex-direction: column;
+  width: 700px;
 }
 
 /* Clase para las etiquetas */
@@ -117,4 +118,14 @@
   font-size: 1rem;
   margin-bottom: 5px;
   color: #495057;
+}
+.select {
+  padding: 10px;
+  font-size: 1rem;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  margin-bottom: 15px;
+  outline: none;
+  transition: border 0.3s ease;
+  margin-right: 10px;
 }

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import styles from './Entrega.module.css';
+import styles from './EntregaDomicilio.module.css';
 import Navbar from './navbar';
 
 const PanelEntregas = () => {
