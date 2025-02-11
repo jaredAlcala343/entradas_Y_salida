@@ -1,257 +1,436 @@
-import React, { useState, useEffect } from 'react';
-import { jsPDF } from 'jspdf';
-import JsBarcode from 'jsbarcode';
-import Navbar from './navbar';
-import styles from './PedidoNuevo.module.css';
+import React, { useState, useEffect } from "react";
+import Navbar from "./navbar";
+import { PDFDocument, rgb } from "pdf-lib";
+import JsBarcode from "jsbarcode";
+import styles from "./PedidoNuevo.module.css";
 
 const PedidoNuevo = () => {
-  const [paso, setPaso] = useState(1);
-  const [origen, setOrigen] = useState('');
-  const [destino, setDestino] = useState('');
-  const [productos, setProductos] = useState([{ producto: '', cantidad: 1 }]);
+  const [step, setStep] = useState(1);
   const [almacenes, setAlmacenes] = useState([]);
-  const [productosDisponibles, setProductosDisponibles] = useState([]);
-  const [filtroProductos, setFiltroProductos] = useState('');
-  const [mostrarCredenciales, setMostrarCredenciales] = useState(false);
-  const [usuario, setUsuario] = useState('');
-  const [contrasena, setContrasena] = useState('');
-  const [usuarioValido, setUsuarioValido] = useState(false);
+  const [productos, setProductos] = useState([]);
+  const [movimientos, setMovimientos] = useState([]);
+  const [formData, setFormData] = useState({
+    TipoMovimiento: "",
+    Origen: "",
+    Destino: "",
+    Producto: [],
+    Usuario: "",
+    Contraseña: "",
+    NumeroPedido: "",
+    Fecha_Creacion: new Date().toISOString().split("T")[0],
+    Fecha_Compromiso: new Date(new Date().setDate(new Date().getDate() + 15))
+      .toISOString()
+      .split("T")[0],
+  });
+  const [newProducto, setNewProducto] = useState({
+    ProductoID: "",
+    Unidades: "",
+  });
 
+  // Cargar datos iniciales desde la API
   useEffect(() => {
-    const fetchData = async (type, setter) => {
+    const fetchData = async () => {
       try {
-        const res = await fetch(`/api/data?type=${type}`);
-        if (!res.ok) throw new Error(`Error fetching ${type}`);
-        setter(await res.json());
-      } catch (err) {
-        console.error(err);
+        const [movRes, almRes, prodRes] = await Promise.all([
+          fetch("/api/documentos-modelo"),
+          fetch("/api/almacenes"),
+          fetch("/api/Productos"),
+        ]);
+
+        if (!movRes.ok || !almRes.ok || !prodRes.ok)
+          throw new Error("Error al cargar datos iniciales");
+
+        const [movData, almData, prodData] = await Promise.all([
+          movRes.json(),
+          almRes.json(),
+          prodRes.json(),
+        ]);
+
+        setMovimientos(movData);
+        setAlmacenes(almData);
+        setProductos(prodData);
+      } catch (error) {
+        console.error(error);
+        alert("Error al cargar los datos iniciales.");
       }
     };
 
-    if (paso === 1) fetchData('almacenes', setAlmacenes);
-    if (paso === 2) fetchData('productos', setProductosDisponibles);
-  }, [paso]);
+    fetchData();
+  }, []);
 
-  const validarUsuario = async () => {
-    try {
-      const res = await fetch(
-        `/api/data?type=validarUsuario&usuario=${usuario}&contrasena=${contrasena}`
-      );
-      const data = await res.json();
-      setUsuarioValido(data.valid);
-      return data.valid;
-    } catch (err) {
-      console.error('Error validando usuario:', err);
-      return false;
-    }
+  // Manejo de cambios en los formularios
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData({ ...formData, [name]: value });
   };
 
-  const generarCodigoDeBarras = (producto) => {
-    const codigoProducto = `${producto.producto}-${producto.cantidad}`;
-    const canvas = document.createElement('canvas');
-    JsBarcode(canvas, codigoProducto, {
-      format: 'CODE128',
-      width: 1,
-      height: 2,
-      displayValue: false,
-      margin: 5,
-    });
-    return canvas.toDataURL('image/png');
-  };
-
-  const imprimirPedido = () => {
-    const pedidoData = { usuario, origen, destino, productos };
-    const doc = new jsPDF();
-    doc.setFontSize(12);
-    doc.text('Referencia de Pedido', 10, 10);
-    doc.text(`Usuario: ${usuario}`, 10, 20);
-    doc.text(`Origen: ${origen}`, 10, 30);
-    doc.text(`Destino: ${destino}`, 10, 40);
-    productos.forEach((prod, i) => doc.text(`${i + 1}. ${prod.producto} - Cantidad: ${prod.cantidad}`, 10, 50 + i * 10));
-    const barcode = generarCodigoDeBarras(pedidoData);
-    doc.addImage(barcode, 'PNG', 10, 150, 180, 30);
-    doc.save('Referencia_Pedido.pdf');
-  };
-
-  const confirmarPedido = async () => {
-    if (await validarUsuario()) {
-      imprimirPedido();
-      alert('Pedido confirmado exitosamente.');
-      setPaso(1);
-      setOrigen('');
-      setDestino('');
-      setProductos([{ producto: '', cantidad: 1 }]);
-      setMostrarCredenciales(false);
-    } else {
-      alert('Usuario o contraseña incorrectos.');
-    }
-  };
-
-  const handleOrigenChange = (e) => {
-    setOrigen(e.target.value);
-    setDestino('');
-  };
-
-  const getDestinos = () => {
-    return almacenes.filter((almacen) => almacen.CCODIGOALMACEN !== origen);
-  };
-
-  const handleProductoChange = (index, value) => {
-    const nuevosProductos = [...productos];
-    nuevosProductos[index].producto = value;
-    setProductos(nuevosProductos);
+  const handleProductoChange = (e) => {
+    const { name, value } = e.target;
+    setNewProducto({ ...newProducto, [name]: value });
   };
 
   const agregarProducto = () => {
-    setProductos([...productos, { producto: '', cantidad: 1 }]);
+    if (!newProducto.ProductoID || !newProducto.Unidades) {
+      alert("Selecciona un producto y especifica las unidades.");
+      return;
+    }
+  
+    const productoSeleccionado = productos.find(
+      (prod) => prod.CIDPRODUCTO === parseInt(newProducto.ProductoID)
+    );
+  
+    if (!productoSeleccionado) {
+      alert("Producto no encontrado.");
+      return;
+    }
+  
+    setFormData((prevState) => ({
+      ...prevState,
+      Producto: [
+        ...prevState.Producto,
+        { 
+          ...newProducto, 
+          NombreProducto: productoSeleccionado.CNOMBREPRODUCTO,
+          CodigoProducto: productoSeleccionado.CCODIGOPRODUCTO // Añadir el código del producto
+        },
+      ],
+    }));
+    setNewProducto({ ProductoID: "", Unidades: "" });
   };
 
-  const eliminarProducto = (index) => {
-    const nuevosProductos = productos.filter((_, i) => i !== index);
-    setProductos(nuevosProductos);
+  
+  // Validar usuario y registrar pedido
+  const validarYRegistrarPedido = async () => {
+    if (!formData.Usuario || !formData.Contraseña) {
+      alert("Debe ingresar un usuario y una contraseña.");
+      return;
+    }
+
+    try {
+      const res = await fetch(
+        `/api/data?type=validarUsuario&usuario=${formData.Usuario}&contrasena=${formData.Contraseña}`,
+        { method: "GET" }
+      );
+
+      if (!res.ok) {
+        alert("Error al validar credenciales.");
+        return;
+      }
+
+      const data = await res.json();
+
+      if (!data.valid) {
+        alert("Usuario o contraseña incorrectos.");
+        return;
+      }
+
+      await registrarPedido();
+    } catch (error) {
+      console.error("Error durante la validación:", error);
+      alert("Hubo un error al validar las credenciales.");
+    }
   };
 
-  const productosFiltrados = productosDisponibles.filter((producto) =>
-    producto.CNOMBREPRODUCTO.toLowerCase().includes(filtroProductos.toLowerCase())
-  );
+  const registrarPedido = async () => {
+    try {
+      const res = await fetch("/api/insertar-movimiento", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formData), // Enviar todos los datos, incluidos los productos
+      });
+  
+      if (!res.ok) {
+        alert("Error al registrar el pedido.");
+        return;
+      }
+  
+      const data = await res.json();
+  
+      // Generar PDF tras registrar
+      await generarPDF(data.NumeroPedido, formData);
+      alert(`Pedido registrado con éxito. Número de Pedido: ${data.NumeroPedido}`);
+  
+      // Reiniciar el formulario y volver al paso 1
+      setFormData({
+        TipoMovimiento: "",
+        Origen: "",
+        Destino: "",
+        Producto: [],
+        Usuario: "",
+        Contraseña: "",
+        NumeroPedido: "",
+        Fecha_Creacion: new Date().toISOString().split("T")[0],
+        Fecha_Compromiso: new Date(new Date().setDate(new Date().getDate() + 15))
+          .toISOString()
+          .split("T")[0],
+      });
+  
+      setStep(1);
+    } catch (error) {
+      console.error("Error al registrar el pedido:", error);
+      alert("Hubo un error al registrar el pedido.");
+    }
+  };
+  const generarPDF = async (numeroPedido, formData) => {
+    try {
+      if (!formData || !formData.Producto) {
+        throw new Error("formData o Producto no están definidos");
+      }
+  
+      const pdfDoc = await PDFDocument.create();
+  
+      // Página principal con detalles del pedido
+      let page = pdfDoc.addPage([600, 800]);
+      const { Producto, Fecha_Creacion, Fecha_Compromiso, Origen, Destino } = formData;
+  
+      // Encabezado del documento
+      page.drawText(`Pedido Detallado`, {
+        x: 50,
+        y: 680,
+        size: 18,
+        color: rgb(0, 0, 0),
+      });
+  
+      // Información del pedido
+      page.drawText(`Fecha: ${Fecha_Creacion}`, { x: 50, y: 650, size: 10 });
+      page.drawText(`Fecha de Entrega: ${Fecha_Compromiso}`, { x: 300, y: 650, size: 10 });
+      page.drawText(`Origen: ${Origen}`, { x: 50, y: 630, size: 10 });
+      page.drawText(`Destino: ${Destino}`, { x: 300, y: 630, size: 10 });
+  
+      // Tabla de productos
+      const startY = 600;
+      let currentY = startY;
+      const lineHeight = 20;
+  
+      // Dibujar tabla: Encabezados
+      page.drawRectangle({ x: 40, y: currentY, width: 520, height: 20, color: rgb(0.8, 0.8, 0.8) });
+      page.drawText("Código", { x: 50, y: currentY + 5, size: 10, color: rgb(0, 0, 0) });
+      page.drawText("Descripción", { x: 150, y: currentY + 5, size: 10, color: rgb(0, 0, 0) });
+      page.drawText("Cantidad", { x: 500, y: currentY + 5, size: 10, color: rgb(0, 0, 0) });
+  
+      currentY -= lineHeight;
+  
+      let totalProductos = 0;
+  
+      for (const prod of Producto) {
+        const { ProductoID, NombreProducto, Unidades, CodigoProducto } = prod;
+        totalProductos += parseInt(Unidades, 10);
+  
+        // Dibujar fila
+        page.drawRectangle({ x: 40, y: currentY - 5, width: 520, height: 20, color: rgb(0.95, 0.95, 0.95) });
+        page.drawText(ProductoID, { x: 50, y: currentY, size: 10 });
+        page.drawText(NombreProducto, { x: 150, y: currentY, size: 10 });
+        page.drawText(`${Unidades}`, { x: 520, y: currentY, size: 10 });
+  
+        currentY -= lineHeight;
+      }
+  
+      // Resumen del pedido
+      currentY -= lineHeight;
+      page.drawText(`Total Productos: ${totalProductos}`, { x: 50, y: currentY, size: 10 });
+  
+      // Generar código de barras del número de pedido
+      const canvasPedido = document.createElement("canvas");
+      JsBarcode(canvasPedido, numeroPedido, {
+        format: "CODE128",
+        displayValue: true,
+        fontSize: 14,
+        textMargin: 4,
+      });
+      const barcodePedidoImage = canvasPedido.toDataURL("image/png");
+      const barcodePedidoEmbed = await pdfDoc.embedPng(barcodePedidoImage);
+  
+      // Agregar número de pedido y código de barras al pie
+      currentY -= 60;
+      page.drawText(`Número de Pedido: ${numeroPedido}`, { x: 50, y: currentY, size: 12, color: rgb(0, 0, 0) });
+      page.drawImage(barcodePedidoEmbed, {
+        x: 300,
+        y: currentY - 30,
+        width: 200,
+        height: 60,
+      });
+  
+      // Crear una hoja por cada producto con sus códigos de barras distribuidos
+      for (const prod of Producto) {
+        const { ProductoID, NombreProducto, Unidades, CodigoProducto } = prod;
+  
+        let barcodePage = pdfDoc.addPage([600, 800]);
+        let xPos = 50;
+        let yPos = 700;
+        const barWidth = 200;
+        const barHeight = 60;
+        const spaceX = 250; // Espaciado horizontal entre códigos
+        const spaceY = 100; // Espaciado vertical entre códigos
+        let count = 0;
+  
+        barcodePage.drawText(`Producto: ${NombreProducto}`, { x: 50, y: 750, size: 14, color: rgb(0, 0, 0) });
+        barcodePage.drawText(`Código: ${ProductoID}`, { x: 50, y: 730, size: 12, color: rgb(0, 0, 0) });
+  
+        for (let i = 0; i < Unidades; i++) {
+          // Generar código de barras por unidad
+          const canvasProducto = document.createElement("canvas");
+          JsBarcode(canvasProducto, CodigoProducto, { // Usar CodigoProducto en lugar de ProductoID
+            format: "CODE128",
+            displayValue: true,
+            fontSize: 14,
+            textMargin: 4,
+          });
+          const barcodeProductoImage = canvasProducto.toDataURL("image/png");
+          const barcodeProductoEmbed = await pdfDoc.embedPng(barcodeProductoImage);
+  
+          barcodePage.drawImage(barcodeProductoEmbed, {
+            x: xPos,
+            y: yPos,
+            width: barWidth,
+            height: barHeight,
+          });
+  
+          xPos += spaceX; // Mover a la siguiente columna
+          count++;
+  
+          if (count % 2 === 0) { // Cada dos códigos, bajar a la siguiente fila
+            xPos = 50;
+            yPos -= spaceY;
+          }
+  
+          if (yPos < 100) { // Si se llena la página, agregar una nueva
+            barcodePage = pdfDoc.addPage([600, 800]);
+            xPos = 50;
+            yPos = 700;
+            count = 0;
+          }
+        }
+      }
+  
+      // Descargar el PDF
+      const pdfBytes = await pdfDoc.save();
+      const blob = new Blob([pdfBytes], { type: "application/pdf" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `Pedido_${numeroPedido}.pdf`;
+      link.click();
+    } catch (error) {
+      console.error("Error al generar el PDF:", error);
+    }
+  };
+  
+
+  const avanzarPaso = () => setStep((prev) => prev + 1);
+  const retrocederPaso = () => setStep((prev) => prev - 1);
 
   return (
     <div>
       <Navbar />
       <div className={styles.formContainer}>
-        <div className={styles.navbarSpacing}></div>
-        {paso === 1 && (
-          <form className={styles.formulario}>
-            <h3 className={styles.tituloH3}>Paso 1: Selección de Origen y Destino</h3>
-            <div>
-              <label className={styles.label}>Origen:</label>
-              <select className={styles.select} value={origen} onChange={handleOrigenChange}>
-                <option value="">Seleccione un origen</option>
-                {almacenes.map((almacen) => (
-                  <option key={almacen.CIDALMACEN} value={almacen.CCODIGOALMACEN}>
-                    {almacen.CNOMBREALMACEN}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className={styles.label}>Destino:</label>
-              <select
-                className={styles.select}
-                value={destino}
-                onChange={(e) => setDestino(e.target.value)}
-                disabled={!origen}
-              >
-                <option value="">Seleccione un destino</option>
-                {getDestinos().map((almacen) => (
-                  <option key={almacen.CIDALMACEN} value={almacen.CCODIGOALMACEN}>
-                    {almacen.CNOMBREALMACEN}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className={styles.button}>
-              <button type="button" onClick={() => setPaso(2)} disabled={!origen || !destino}>
-                Siguiente
-              </button>
-            </div>
-          </form>
+        <h3>Registrar Nuevo Pedido</h3>
+        {/* Renders por pasos*/}
+        {step === 1 && (
+          <div>
+            <h4>Paso 1: Seleccionar Tipo de Movimiento</h4>
+            <select name="TipoMovimiento" value={formData.TipoMovimiento} onChange={handleChange}>
+              <option value="">Seleccione un movimiento</option>
+              {movimientos.map((mov) => (
+                <option key={mov.CIDDOCUMENTODE} value={mov.CIDDOCUMENTODE}>
+                  {mov.CDESCRIPCION}
+                </option>
+              ))}
+            </select>
+            <button onClick={avanzarPaso}>Siguiente</button>
+          </div>
         )}
-        {paso === 2 && (
-          <form className={styles.formulario}>
-            <h3 className={styles.tituloH3}>Paso 2: Agregar Productos</h3>
-            
-            {productos.map((producto, index) => (
-              <div key={index} className={styles.productRow}>
-                <select
-                  className={styles.select}
-                  value={producto.producto}
-                  onChange={(e) => handleProductoChange(index, e.target.value)}
-                >
-                  <option value="">Seleccione un producto</option>
-                  {productosFiltrados.map((prod) => (
-                    <option key={prod.CIDPRODUCTO} value={prod.CNOMBREPRODUCTO}>
-                      {prod.CNOMBREPRODUCTO}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  className={styles.input}
-                  type="number"
-                  placeholder="Cantidad"
-                  value={producto.cantidad}
-                  onChange={(e) =>
-                    setProductos((prev) =>
-                      prev.map((p, i) =>
-                        i === index ? { ...p, cantidad: e.target.value } : p
-                      )
-                    )
-                  }
-                  min="1"
-                />
-                <button type="button" onClick={() => eliminarProducto(index)}>
-                  Eliminar
-                </button>
-              </div>
-            ))}
-            <div className={styles.button}>
-              <button type="button" onClick={agregarProducto}>
-                Agregar Producto
-              </button>
-              <button type="button" onClick={() => setPaso(1)}>
-                Anterior
-              </button>
-              <button type="button" onClick={() => setPaso(3)}>
-                Siguiente
-              </button>
-            </div>
-          </form>
+
+        {step === 2 && (
+          <div>
+            <h4>Paso 2: Seleccionar Almacén de Origen y Destino</h4>
+            <select name="Origen" value={formData.Origen} onChange={handleChange}>
+              <option value="">Seleccione un almacén</option>
+              {almacenes.map((almacen) => (
+                <option key={almacen.CIDALMACEN} value={almacen.CIDALMACEN}>
+                  {almacen.CNOMBREALMACEN}
+                </option>
+              ))}
+            </select>
+
+            <select name="Destino" value={formData.Destino} onChange={handleChange}>
+              <option value="">Seleccione un almacén</option>
+              {almacenes.map((almacen) => (
+                <option key={almacen.CIDALMACEN} value={almacen.CIDALMACEN}>
+                  {almacen.CNOMBREALMACEN}
+                </option>
+              ))}
+            </select>
+
+            <button onClick={retrocederPaso}>Retroceder</button>
+            <button onClick={avanzarPaso}>Siguiente</button>
+          </div>
         )}
-        {paso === 3 && (
-          <div className={styles.formulario}>
-            <h3 className={styles.tituloH3}>Paso 3: Confirmación del Pedido</h3>
-            <p><strong>Origen:</strong> {origen}</p>
-            <p><strong>Destino:</strong> {destino}</p>
-            <h4>Productos seleccionados:</h4>
+
+        {step === 3 && (
+          <div>
+            <h4>Paso 3: Seleccionar Productos</h4>
+            <select name="ProductoID" value={newProducto.ProductoID} onChange={handleProductoChange}>
+              <option value="">Seleccione un producto</option>
+              {productos.map((producto) => (
+                <option key={producto.CIDPRODUCTO} value={producto.CIDPRODUCTO}>
+                  {producto.CNOMBREPRODUCTO}
+                </option>
+              ))}
+            </select>
+            <input
+              type="number"
+              name="Unidades"
+              value={newProducto.Unidades}
+              onChange={handleProductoChange}
+              placeholder="Unidades"
+            />
+            <button onClick={agregarProducto}>Agregar Producto</button>
+
+            <h5>Productos seleccionados:</h5>
             <ul>
-              {productos.map((prod, index) => (
+              {formData.Producto.map((prod, index) => (
                 <li key={index}>
-                  {prod.producto} - Cantidad: {prod.cantidad}
+                  {prod.NombreProducto} - {prod.Unidades} unidades
                 </li>
               ))}
             </ul>
-            {mostrarCredenciales ? (
-              <div>
-                <label>Usuario:</label>
-                <input
-                  type="text"
-                  value={usuario}
-                  onChange={(e) => setUsuario(e.target.value)}
-                  className={styles.input}
-                />
-                <label>Contraseña:</label>
-                <input
-                  type="password"
-                  value={contrasena}
-                  onChange={(e) => setContrasena(e.target.value)}
-                  className={styles.input}
-                />
-                <div className={styles.button}>
-                  <button type="button" onClick={confirmarPedido}>
-                    Confirmar Pedido
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className={styles.button}>
-                <button type="button" onClick={() => setPaso(2)}>
-                  Anterior
-                </button>
-                <button type="button" onClick={() => setMostrarCredenciales(true)}>
-                  Continuar
-                </button>
-              </div>
-            )}
+
+            <button onClick={retrocederPaso}>Retroceder</button>
+            <button onClick={avanzarPaso}>Siguiente</button>
+          </div>
+        )}
+
+        {step === 4 && (
+          <div>
+            <h4>Resumen del Pedido</h4>
+            <p>Tipo de Movimiento: {formData.TipoMovimiento}</p>
+            <p>Origen: {formData.Origen}</p>
+            <p>Destino: {formData.Destino}</p>
+            <h5>Productos:</h5>
+            <ul>
+              {formData.Producto.map((prod, index) => (
+                <li key={index}>
+                  {prod.NombreProducto} - {prod.Unidades} unidades
+                </li>
+              ))}
+            </ul>
+
+            <h5>Ingrese sus credenciales para confirmar:</h5>
+            <input
+              type="text"
+              name="Usuario"
+              value={formData.Usuario}
+              onChange={handleChange}
+              placeholder="Usuario"
+            />
+            <input
+              type="password"
+              name="Contraseña"
+              value={formData.Contraseña}
+              onChange={handleChange}
+              placeholder="Contraseña"
+            />
+            <button onClick={retrocederPaso}>Retroceder</button>
+            <button onClick={validarYRegistrarPedido}>Finalizar Pedido</button>
           </div>
         )}
       </div>

@@ -1,83 +1,98 @@
-import React, { useState } from 'react';
-import BarcodeReader from 'react-barcode-reader';
-import styles from './SurtirPedido.module.css';
-import Navbar from './navbar';
+import React, { useState, useEffect } from "react";
+import styles from "./SurtirPedido.module.css";
+import Navbar from "./navbar";
 
 const PanelSurtir = () => {
-  const [codigoPedido, setCodigoPedido] = useState('');
+  const [codigoPedido, setCodigoPedido] = useState("");
   const [pedidoInfo, setPedidoInfo] = useState(null);
-  const [productoIndex, setProductoIndex] = useState(0);
-  const [productosEscaneados, setProductosEscaneados] = useState([]);
-  const [usuario, setUsuario] = useState('');
-  const [password, setPassword] = useState('');
+  const [productosEscaneados, setProductosEscaneados] = useState({});
+  const [codigoManual, setCodigoManual] = useState("");
+  const [usuario, setUsuario] = useState("");
+  const [password, setPassword] = useState("");
   const [pedidoSurtido, setPedidoSurtido] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [autenticacionPendiente, setAutenticacionPendiente] = useState(false);
+  const [mensajeError, setMensajeError] = useState("");
 
-  // Simulando base de datos de pedidos
-  const pedidos = [
-    {
-      codigo: 'PED12345',
-      productos: [
-        { nombre: 'Producto A', cantidad: 3, codigo: 'A123' },
-        { nombre: 'Producto B', cantidad: 5, codigo: 'B123' },
-      ],
-    },
-    {
-      codigo: 'PED67890',
-      productos: [
-        { nombre: 'Producto C', cantidad: 2, codigo: 'C123' },
-        { nombre: 'Producto D', cantidad: 7, codigo: 'D123' },
-      ],
-    },
-  ];
+  // 🔹 Buscar pedido en la base de datos
+  const buscarPedido = async () => {
+    if (!codigoPedido.trim()) {
+      alert("⚠️ Ingresa un código de pedido válido.");
+      return;
+    }
+    setLoading(true);
+    try {
+      const response = await fetch(`/api/sPedido?numeroPedido=${codigoPedido}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || "Error al buscar el pedido");
 
-  const buscarPedido = () => {
-    const pedido = pedidos.find((p) => p.codigo === codigoPedido);
-    if (pedido) {
-      setPedidoInfo(pedido);
-      setProductosEscaneados([]); // Reiniciar los productos escaneados
-    } else {
-      alert('Pedido no encontrado');
+      setPedidoInfo({ codigo: codigoPedido, productos: data });
+
+      // 🔹 Inicializar conteo de productos escaneados
+      const conteoInicial = {};
+      data.forEach((p) => (conteoInicial[p.CCODIGOPRODUCTO] = 0));
+      setProductosEscaneados(conteoInicial);
+
+      setAutenticacionPendiente(false);
+    } catch (error) {
+      alert(error.message);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleCodigoEscaneado = (data) => {
-    if (data) {
-      const currentProducto = pedidoInfo.productos[productoIndex];
-      if (data === currentProducto.codigo) {
-        const nuevoEscaneo = productosEscaneados.concat(data);
-        setProductosEscaneados(nuevoEscaneo);
+  // 🔹 Verificar producto en la base de datos y actualizar conteo
+  const verificarProducto = async (codigoProducto) => {
+    if (!pedidoInfo) return;
 
-        // Verificar si todos los productos han sido escaneados
-        const totalProductosEscaneados = nuevoEscaneo.filter(
-          (codigo) => codigo === currentProducto.codigo
-        ).length;
+    try {
+      const response = await fetch(`/api/verificarProducto?numeroPedido=${codigoPedido}&codigoProducto=${codigoProducto}`);
+      const data = await response.json();
 
-        if (totalProductosEscaneados === currentProducto.cantidad) {
-          if (productoIndex + 1 < pedidoInfo.productos.length) {
-            setProductoIndex(productoIndex + 1); // Pasar al siguiente producto
-          } else {
-            alert('Todos los productos han sido escaneados correctamente.');
-          }
-        }
+      if (!response.ok || !data.existe) {
+        alert("⚠️ Código no pertenece al pedido.");
+        return;
       }
+
+      setProductosEscaneados((prev) => {
+        const nuevosEscaneos = { ...prev };
+
+        if (!nuevosEscaneos[codigoProducto]) nuevosEscaneos[codigoProducto] = 0;
+        nuevosEscaneos[codigoProducto]++;
+
+        // 🔹 Verificar si se completaron todas las unidades de este producto
+        const producto = pedidoInfo.productos.find((p) => p.CCODIGOPRODUCTO === codigoProducto);
+        if (nuevosEscaneos[codigoProducto] >= producto.Unidades) {
+          alert(`✅ Se completaron todas las unidades de ${producto.CNOMBREPRODUCTO}`);
+        }
+
+        // 🔹 Verificar si se escanearon todos los productos
+        const todosEscaneados = pedidoInfo.productos.every(
+          (p) => nuevosEscaneos[p.CCODIGOPRODUCTO] >= p.Unidades
+        );
+
+        if (todosEscaneados) {
+          alert("✅ Todos los productos han sido escaneados.");
+          setAutenticacionPendiente(true);
+        }
+
+        return nuevosEscaneos;
+      });
+    } catch (error) {
+      console.error("Error al verificar producto:", error);
     }
   };
 
-  const surtirPedido = () => {
-    if (usuario && password) {
-      // Aquí puedes integrar un sistema real de autenticación
-      alert('Pedido surtido correctamente');
-      setPedidoSurtido(true);
+  // 🔹 Escaneo con enter automático
+  const handleCodigoEscaneado = (codigo) => {
+    verificarProducto(codigo);
+  };
 
-      // Reiniciar el estado del formulario
-      setCodigoPedido('');
-      setPedidoInfo(null);
-      setProductoIndex(0);
-      setProductosEscaneados([]);
-      setUsuario('');
-      setPassword('');
-    } else {
-      alert('Por favor ingresa usuario y contraseña');
+  // 🔹 Ingreso manual con "Enter"
+  const handleCodigoManual = (e) => {
+    if (e.key === "Enter") {
+      verificarProducto(codigoManual.trim());
+      setCodigoManual("");
     }
   };
 
@@ -87,7 +102,6 @@ const PanelSurtir = () => {
       <div className={styles.panelContainer}>
         <h3>Panel de Surtir Pedidos</h3>
 
-        {/* Paso 1: Ingreso o Escaneo del Código del Pedido */}
         {!pedidoInfo ? (
           <div>
             <h4>Ingresa o Escanea el Código del Pedido</h4>
@@ -97,56 +111,44 @@ const PanelSurtir = () => {
               value={codigoPedido}
               onChange={(e) => setCodigoPedido(e.target.value)}
             />
-            <button onClick={buscarPedido}>Buscar Pedido</button>
+            <button onClick={buscarPedido} disabled={loading}>
+              {loading ? "Buscando..." : "Buscar Pedido"}
+            </button>
           </div>
         ) : (
-          // Paso 2: Mostrar Información del Pedido
           <div>
             <h4>Pedido: {pedidoInfo.codigo}</h4>
-            <h5>Productos:</h5>
             <ul>
               {pedidoInfo.productos.map((producto, index) => (
                 <li key={index}>
-                  {producto.nombre} - Cantidad: {producto.cantidad}
+                  {producto.CNOMBREPRODUCTO} - Cantidad: {producto.Unidades} - Escaneados:{" "}
+                  {productosEscaneados[producto.CCODIGOPRODUCTO] || 0}
                 </li>
               ))}
             </ul>
 
-            {/* Paso 3: Escaneo de Productos */}
-            {productoIndex < pedidoInfo.productos.length && !pedidoSurtido && (
+            {!pedidoSurtido && (
               <div>
-                <h5>Escanea el Código de Barras para {pedidoInfo.productos[productoIndex].nombre}</h5>
-                <BarcodeReader onScan={handleCodigoEscaneado} />
-                <p>
-                  Escaneados:{" "}
-                  {
-                    productosEscaneados.filter(
-                      (codigo) =>
-                        codigo === pedidoInfo.productos[productoIndex].codigo
-                    ).length
-                  }{" "}
-                  de {pedidoInfo.productos[productoIndex].cantidad}
-                </p>
+                <h5>Escanea un producto o ingrésalo manualmente:</h5>
+                <input
+                  type="text"
+                  placeholder="Ingrese código"
+                  value={codigoManual}
+                  onChange={(e) => setCodigoManual(e.target.value)}
+                  onKeyDown={handleCodigoManual}
+                />
               </div>
             )}
 
-            {/* Paso 4: Confirmación de Surtido */}
-            {productoIndex === pedidoInfo.productos.length && (
+            {autenticacionPendiente && (
               <div>
-                <h4>Confirmar Surtido del Pedido</h4>
-                <input
-                  type="text"
-                  placeholder="Usuario"
-                  value={usuario}
-                  onChange={(e) => setUsuario(e.target.value)}
-                />
-                <input
-                  type="password"
-                  placeholder="Contraseña"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-                <button onClick={surtirPedido}>Surtir Pedido</button>
+                <h4>Ingrese sus credenciales para confirmar el pedido</h4>
+                <input type="text" placeholder="Usuario" value={usuario} onChange={(e) => setUsuario(e.target.value)} />
+                <input type="password" placeholder="Contraseña" value={password} onChange={(e) => setPassword(e.target.value)} />
+                {mensajeError && <p className={styles.error}>{mensajeError}</p>}
+                <button onClick={() => alert("Aquí se validará el usuario")} disabled={loading}>
+                  {loading ? "Validando..." : "Confirmar Surtido"}
+                </button>
               </div>
             )}
           </div>

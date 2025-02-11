@@ -24,6 +24,7 @@ export default function SignIn() {
     if (response.ok && data.redirectUrl) {
       localStorage.setItem('username', username); // Guardar username en localStorage
       localStorage.setItem('name', data.userData.name); // Guardar nombre del usuario en localStorage
+      localStorage.setItem('rol', data.userData.rol); // Guardar rol del usuario en localStorage
       router.push(data.redirectUrl);
     } else {
       alert(data.message || 'Login failed');
@@ -37,7 +38,7 @@ export default function SignIn() {
         <h4>POR FAVOR INGRESE SUS CREDENCIALES</h4>
 
         <label>
-          Numero de Empleado:
+          Ingrese su correo:
           <input
             type="text"
             value={username}
@@ -55,13 +56,13 @@ export default function SignIn() {
         <button type="submit">Login</button>
       </form>
       <div className={styles.loginImage}>
-      <Image
-        className={styles.loginImage}
-        src="/inicio.jpg"
-        alt="Imagen de inicio"
-        width={650}
-        height={400}
-      />
+        <Image
+          className={styles.loginImage}
+          src="/inicio.jpg"
+          alt="Imagen de inicio"
+          width={650}
+          height={400}
+        />
       </div>
     </div>
   );

@@ -1,106 +1,168 @@
-import React, { useState } from 'react';
-import styles from './EntregaDomicilio.module.css';
-import Navbar from './navbar';
+import React, { useState } from "react";
+import styles from "./EntregaDomicilio.module.css";
+import Navbar from "./navbar";
 
-const PanelEntregas = () => {
-  const [factura, setFactura] = useState('');
-  const [datosCliente, setDatosCliente] = useState(null);
-  const [usuario, setUsuario] = useState('');
-  const [password, setPassword] = useState('');
-  const [entregaConfirmada, setEntregaConfirmada] = useState(false);
+const Inventario = () => {
+  const [nombreInventario, setNombreInventario] = useState("");
+  const [usuarioID, setUsuarioID] = useState("");
+  const [almacenID, setAlmacenID] = useState("");
+  const [inventarioID, setInventarioID] = useState("");
+  const [productoID, setProductoID] = useState("");
+  const [unidades, setUnidades] = useState("");
+  const [conteoProductos, setConteoProductos] = useState([]);
 
-  // Simulando base de datos de facturas y clientes
-  const facturas = [
-    {
-      facturaId: 'FAC12345',
-      cliente: 'Juan Pérez',
-      direccion: 'Calle Falsa 123, Ciudad Ejemplo',
-      telefono: '555-1234',
-    },
-    {
-      facturaId: 'FAC67890',
-      cliente: 'María López',
-      direccion: 'Avenida Siempre Viva 742, Springfield',
-      telefono: '555-5678',
-    },
-  ];
+  // Crear un nuevo inventario
+  const crearInventario = async () => {
+    try {
+      const res = await fetch("/api/crear-inventario", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          NombreInventario: nombreInventario,
+          UsuarioID: usuarioID,
+          AlmacenID: almacenID,
+        }),
+      });
 
-  const buscarFactura = () => {
-    const facturaEncontrada = facturas.find((f) => f.facturaId === factura);
-    if (facturaEncontrada) {
-      setDatosCliente(facturaEncontrada);
-    } else {
-      alert('Factura no encontrada');
-      setDatosCliente(null);
+      if (!res.ok) {
+        alert("Error al crear el inventario");
+        return;
+      }
+
+      const data = await res.json();
+      alert("Inventario creado exitosamente");
+      setInventarioID(data.IDInventario); // Guardar el ID del inventario creado
+    } catch (error) {
+      console.error("Error al crear el inventario:", error);
+      alert("Hubo un error al crear el inventario");
     }
   };
 
-  const confirmarEnvio = () => {
-    if (usuario && password) {
-      // Aquí puedes integrar un sistema real de autenticación
-      alert('Envío confirmado');
-      setEntregaConfirmada(true);
+  // Escanear un producto
+  const escanearProducto = async () => {
+    try {
+      const res = await fetch("/api/escanear-producto", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          InventarioID: inventarioID,
+          ProductoID: productoID,
+          Unidades: unidades,
+          AlmacenID: almacenID,
+        }),
+      });
 
-      // Reiniciar el formulario después de confirmar
-      setFactura('');
-      setDatosCliente(null);
-      setUsuario('');
-      setPassword('');
-    } else {
-      alert('Por favor ingresa usuario y contraseña');
+      if (!res.ok) {
+        alert("Error al escanear el producto");
+        return;
+      }
+
+      alert("Producto escaneado exitosamente");
+      setProductoID("");
+      setUnidades("");
+    } catch (error) {
+      console.error("Error al escanear el producto:", error);
+      alert("Hubo un error al escanear el producto");
+    }
+  };
+
+  // Obtener el conteo de productos
+  const obtenerConteoProductos = async () => {
+    try {
+      const res = await fetch(`/api/conteo-productos?InventarioID=${inventarioID}`);
+      if (!res.ok) {
+        alert("Error al obtener el conteo de productos");
+        return;
+      }
+
+      const data = await res.json();
+      setConteoProductos(data);
+    } catch (error) {
+      console.error("Error al obtener el conteo de productos:", error);
+      alert("Hubo un error al obtener el conteo de productos");
     }
   };
 
   return (
     <div>
       <Navbar />
-      <div className={styles.panelContainer}>
-        <h3>Panel de Entregas</h3>
+      <div className={styles.container}>
+        <h1 className={styles.title}>Gestión de Inventarios</h1>
 
-        {/* Paso 1: Solicitar Factura */}
-        {!datosCliente ? (
-          <div>
-            <h4>Ingresa el Número de Factura</h4>
-            <input
-              type="text"
-              placeholder="Número de Factura"
-              value={factura}
-              onChange={(e) => setFactura(e.target.value)}
-            />
-            <button onClick={buscarFactura}>Buscar Factura</button>
-          </div>
-        ) : (
-          // Paso 2: Mostrar Datos del Cliente
-          <div>
-            <h4>Factura: {datosCliente.facturaId}</h4>
-            <p><strong>Cliente:</strong> {datosCliente.cliente}</p>
-            <p><strong>Dirección:</strong> {datosCliente.direccion}</p>
-            <p><strong>Teléfono:</strong> {datosCliente.telefono}</p>
+        {/* Crear un nuevo inventario */}
+        <div className={styles.panelContainer}>
+          <h2>Crear Nuevo Inventario</h2>
+          <input
+            type="text"
+            placeholder="Nombre del Inventario"
+            value={nombreInventario}
+            onChange={(e) => setNombreInventario(e.target.value)}
+          />
+          <input
+            type="text"
+            placeholder="ID Usuario"
+            value={usuarioID}
+            onChange={(e) => setUsuarioID(e.target.value)}
+          />
+          <input
+            type="text"
+            placeholder="ID Almacén"
+            value={almacenID}
+            onChange={(e) => setAlmacenID(e.target.value)}
+          />
+          <button onClick={crearInventario}>Crear Inventario</button>
+        </div>
 
-            {/* Paso 3: Confirmar Envío */}
-            {!entregaConfirmada && (
-              <div>
-                <h4>Confirmar Envío</h4>
-                <input
-                  type="text"
-                  placeholder="Usuario"
-                  value={usuario}
-                  onChange={(e) => setUsuario(e.target.value)}
-                />
-                <input
-                  type="password"
-                  placeholder="Contraseña"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-                <button onClick={confirmarEnvio}>Confirmar Envío</button>
-              </div>
-            )}
-          </div>
-        )}
+        {/* Revisar discrepancias de inventarios */}
+        <div className={styles.panelContainer}>
+          <h2>Revisar Discrepancias de Inventarios</h2>
+          <button onClick={obtenerConteoProductos}>Obtener Conteo</button>
+          <table>
+            <thead>
+              <tr>
+                <th>ID Producto</th>
+                <th>Nombre</th>
+                <th>Unidades</th>
+              </tr>
+            </thead>
+            <tbody>
+              {conteoProductos.map((producto, index) => (
+                <tr key={index}>
+                  <td>{producto.CIDPRODUCTO}</td>
+                  <td>{producto.CNOMBRE_PRODUCTO}</td>
+                  <td>{producto.TotalUnidades}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Agendar nuevos inventarios */}
+        <div className={styles.panelContainer}>
+          <h2>Agendar Nuevos Inventarios</h2>
+          <input
+            type="text"
+            placeholder="Nombre del Inventario"
+            value={nombreInventario}
+            onChange={(e) => setNombreInventario(e.target.value)}
+          />
+          <input
+            type="text"
+            placeholder="ID Usuario"
+            value={usuarioID}
+            onChange={(e) => setUsuarioID(e.target.value)}
+          />
+          <input
+            type="text"
+            placeholder="ID Almacén"
+            value={almacenID}
+            onChange={(e) => setAlmacenID(e.target.value)}
+          />
+          <button onClick={crearInventario}>Agendar Inventario</button>
+        </div>
       </div>
     </div>
   );
 };
 
-export default PanelEntregas;
+export default Inventario;

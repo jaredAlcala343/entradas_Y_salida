@@ -5,7 +5,7 @@ import 'jspdf-autotable';
 import styles from './PanelPedido.module.css';
 import Navbar from './navbar';
 
-const PanelPedidos = () => {
+const RecibirPedido = () => {
   const [pedidoId, setPedidoId] = useState('');
   const [pedidoInfo, setPedidoInfo] = useState(null);
   const [productoIndex, setProductoIndex] = useState(0);
@@ -14,38 +14,23 @@ const PanelPedidos = () => {
   const [password, setPassword] = useState('');
   const [pedidoTerminado, setPedidoTerminado] = useState(false);
 
-  // Simulando una base de datos de pedidos
-  const pedidos = [
-    {
-      id: '123456',
-      origen: 'Chihuahua',
-      destino: 'Pumas',
-      productos: [
-        { nombre: 'Producto A', cantidad: 5, codigo: 'A123' },
-        { nombre: 'Producto B', cantidad: 3, codigo: 'B123' },
-      ],
-    },
-    {
-      id: '678900',
-      origen: 'Cantera',
-      destino: 'Rosalio',
-      productos: [
-        { nombre: 'Producto C', cantidad: 2, codigo: 'C123' },
-        { nombre: 'Producto D', cantidad: 7, codigo: 'D123' },
-      ],
-    },
-  ];
+  const buscarPedido = async () => {
+    try {
+      const response = await fetch(`/api/recibirPedido?pedidoId=${pedidoId}`);
+      const data = await response.json();
 
-  const buscarPedido = () => {
-    const pedido = pedidos.find((p) => p.id === pedidoId);
-    if (pedido) {
-      setPedidoInfo(pedido);
-      setProductoIndex(0);
-      setCodigoEscaneado([]);
-      setPedidoTerminado(false);
-    } else {
-      alert('Pedido no encontrado');
-      setPedidoInfo(null);
+      if (response.ok) {
+        setPedidoInfo(data);
+        setProductoIndex(0);
+        setCodigoEscaneado([]);
+        setPedidoTerminado(false);
+      } else {
+        alert(data.message || 'Pedido no encontrado');
+        setPedidoInfo(null);
+      }
+    } catch (err) {
+      alert('Error al buscar el pedido');
+      console.error(err);
     }
   };
 
@@ -113,7 +98,7 @@ const PanelPedidos = () => {
     <div>
       <Navbar />
       <div className={styles.panelContainer}>
-        <h3>Panel de Recepción de Pedidos</h3>
+        <h3>Recibir Pedido</h3> {/* Aquí cambiamos el título */}
 
         {!pedidoInfo ? (
           <div>
@@ -200,4 +185,4 @@ const PanelPedidos = () => {
   );
 };
 
-export default PanelPedidos;
+export default RecibirPedido;

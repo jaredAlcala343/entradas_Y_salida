@@ -10,32 +10,39 @@ export default async function handler(req, res) {
     try {
       const pool = await connectToDatabase();
       const result = await pool.request()
-        .input('username', sql.VarChar, username)
-        .query('SELECT * FROM dbo.UsuariosLocal WHERE Nombre = @username');
-
+        .input('username', sql.VarChar, username.trim()) // Asegúrate de que el nombre del parámetro coincida y elimina espacios en blanco
+        .query('SELECT * FROM Usuarios WHERE correo = @username');
+    
       if (result.recordset.length === 0) {
-        return res.status(401).json({ message: 'Invalid username or password' });
+        return res.status(401).json({ message: 'Invalid username' });
       }
 
       const user = result.recordset[0];
 
-      const passwordIsValid = user.Clave === password;
+      // Verificar que user.contrasena no sea undefined
+      if (!user.contraseña) {
+        return res.status(401).json({ message: 'Invalid password' });
+      }
+
+      // Comparar la contraseña en texto plano (no recomendado para producción)
+      const passwordIsValid = user.contraseña.trim() === password.trim();
 
       if (!passwordIsValid) {
-        return res.status(401).json({ message: 'Invalid username or password' });
+        return res.status(401).json({ message: 'Invalid password' });
       }
 
       const token = jwt.sign(
-        { id: user.Id, name: user.Nombre, area: user.Area, puesto: user.Puesto },
+        { id: user.id_usuario, name: user.nombre, area: user.rol, puesto: user.Puesto },
         process.env.JWT_SECRET,
         { expiresIn: '1h' }
       );
 
       const userData = {
         token,
-        name: user.Nombre,
+        name: user.nombre, // Asegúrate de que el campo coincida con el nombre exacto en la base de datos
+        rol: user.rol, // Incluye el rol en la respuesta
       };
-        console.log(userData);
+      console.log(userData);
       res.setHeader('Set-Cookie', `token=${token}; HttpOnly; Path=/; Max-Age=3600`);
       return res.status(200).json({ message: 'Login successful', redirectUrl: '/dashboard', userData });
     } catch (error) {
@@ -49,8 +56,8 @@ export default async function handler(req, res) {
     try {
       const pool = await connectToDatabase();
       const result = await pool.request()
-        .input('username', sql.VarChar, username)
-        .query('SELECT Nombre FROM dbo.Usuarios WHERE NumeroEmpleado = @username');
+        .input('username', sql.VarChar, username.trim())
+        .query('SELECT nombre FROM Usuarios WHERE correo = @username');
 
       if (result.recordset.length === 0) {
         return res.status(404).json({ message: 'User not found' });

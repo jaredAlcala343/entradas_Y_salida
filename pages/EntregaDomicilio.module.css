@@ -1,18 +1,77 @@
 .panelContainer {
-    margin: 20px auto;
-    padding: 20px;
-    max-width: 600px;
-    border: 1px solid #ccc;
-    border-radius: 8px;
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-    background-color: #f9f9f9;
-  }
-  
-  .panelContainer h3,
-  .panelContainer h4 {
-    text-align: center;
-    margin-bottom: 15px;
-  }
-  
- 
-  
+  margin: 20px auto;
+  padding: 20px;
+  max-width: 800px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+  background-color: #ffffff;
+}
+
+.panelContainer h2 {
+  text-align: center;
+  margin-bottom: 20px;
+  color: #333;
+  font-size: 24px;
+}
+
+.panelContainer input[type="text"] {
+  width: calc(100% - 20px);
+  padding: 10px;
+  margin: 10px 0;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 16px;
+}
+
+.panelContainer button {
+  display: block;
+  width: 100%;
+  padding: 10px;
+  margin-top: 10px;
+  background-color: #007bff;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.panelContainer button:hover {
+  background-color: #0056b3;
+}
+
+.panelContainer table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 20px;
+}
+
+.panelContainer table th,
+.panelContainer table td {
+  border: 1px solid #ddd;
+  padding: 8px;
+  text-align: left;
+}
+
+.panelContainer table th {
+  background-color: #f2f2f2;
+  color: #333;
+}
+
+.panelContainer table tr:nth-child(even) {
+  background-color: #f9f9f9;
+}
+
+.panelContainer table tr:hover {
+  background-color: #f1f1f1;
+}
+
+.title {
+  text-align: center;
+  margin-bottom: 20px;
+  color: #333;
+  font-size: 32px;
+}
+
+
