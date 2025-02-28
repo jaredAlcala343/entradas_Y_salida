@@ -1,14 +1,13 @@
-// dbconfig.js
-// next.config.js o dbConfig.js
+
 require('dotenv').config();
 const sql = require('mssql');
 
 const config = {
-    user: process.env.DB_USER,  // Usando la variable de entorno
-    password: process.env.DB_PASSWORD,  // Usando la variable de entorno
-    server: process.env.DB_SERVER,  // Usando la variable de entorno
-    port: parseInt(process.env.DB_PORT),  // Usando la variable de entorno
-    database: process.env.DB_DATABASE,  // Usando la variable de entorno
+    user: process.env.DB_USER,  
+    password: process.env.DB_PASSWORD,  
+    server: process.env.DB_SERVER,  
+    port: parseInt(process.env.DB_PORT),  
+    database: process.env.DB_DATABASE,  
     options: {
         encrypt: false,  // Cambia a true si usas una conexión cifrada
         trustServerCertificate: true,  // Cambia según tus necesidades de seguridad
@@ -27,4 +26,20 @@ async function connectToDatabase() {
     }
 }
 
-module.exports = { sql, connectToDatabase };
+let poolPromise;
+
+async function getPool() {
+    if (!poolPromise) {
+        try {
+            poolPromise = await sql.connect(config);
+            console.log('✅ Conectado a SQL Server');
+        } catch (err) {
+            console.error('❌ Error al conectar a SQL Server:', err);
+            throw err;
+        }
+    }
+    return poolPromise;
+}
+
+
+module.exports = { sql, connectToDatabase, getPool };

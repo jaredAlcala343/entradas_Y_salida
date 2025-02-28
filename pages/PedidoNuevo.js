@@ -1,262 +1,125 @@
-import React, { useState, useEffect } from 'react';
-import { jsPDF } from 'jspdf';
-import JsBarcode from 'jsbarcode';
-import Navbar from './navbar';
-import styles from './PedidoNuevo.module.css';
+import React, { useState, useEffect } from "react";
 
 const PedidoNuevo = () => {
-  const [paso, setPaso] = useState(1);
-  const [origen, setOrigen] = useState('');
-  const [destino, setDestino] = useState('');
-  const [productos, setProductos] = useState([{ producto: '', cantidad: 1 }]);
   const [almacenes, setAlmacenes] = useState([]);
-  const [productosDisponibles, setProductosDisponibles] = useState([]);
-  const [filtroProductos, setFiltroProductos] = useState('');
-  const [mostrarCredenciales, setMostrarCredenciales] = useState(false);
-  const [usuario, setUsuario] = useState('');
-  const [contrasena, setContrasena] = useState('');
-  const [usuarioValido, setUsuarioValido] = useState(false);
+  const [productos, setProductos] = useState([]);
+  const [ultimoPedidoID, setUltimoPedidoID] = useState(null);
 
   useEffect(() => {
-    const fetchData = async (type, setter) => {
+    const fetchData = async () => {
       try {
-        const res = await fetch(`/api/data?type=${type}`);
-        if (!res.ok) throw new Error(`Error fetching ${type}`);
-        setter(await res.json());
-      } catch (err) {
-        console.error(err);
+        const [almRes, prodRes] = await Promise.all([
+          fetch("/api/almacenes"),
+          fetch("/api/Productos"),
+        ]);
+
+        if (!almRes.ok || !prodRes.ok) throw new Error("Error al cargar datos iniciales");
+
+        const almData = await almRes.json();
+        const prodData = await prodRes.json();
+
+        setAlmacenes(almData);
+        setProductos(prodData);
+      } catch (error) {
+        console.error("❌ Error al cargar los datos iniciales:", error);
+        alert("Error al cargar los datos iniciales.");
       }
     };
 
-    if (paso === 1) fetchData('almacenes', setAlmacenes);
-    if (paso === 2) fetchData('productos', setProductosDisponibles);
-  }, [paso]);
+    fetchData();
 
-  const validarUsuario = async () => {
+    const intervalId = setInterval(() => {
+      obtenerPedidos();
+    }, 1800000);
+
+    return () => clearInterval(intervalId);
+  }, []);
+
+  const obtenerPedidos = async () => {
     try {
-      const res = await fetch(
-        `/api/data?type=validarUsuario&usuario=${usuario}&contrasena=${contrasena}`
-      );
-      const data = await res.json();
-      setUsuarioValido(data.valid);
-      return data.valid;
-    } catch (err) {
-      console.error('Error validando usuario:', err);
-      return false;
+      const res = await fetch("/api/obtener-pedidos", { method: "GET" });
+
+      if (!res.ok) throw new Error("Error al obtener los pedidos");
+
+      const pedidos = await res.json();
+      if (!pedidos.length) return;
+
+      for (const pedido of pedidos) {
+        if (ultimoPedidoID !== null && pedido.CFOLIO <= ultimoPedidoID) {
+          continue;
+        }
+
+        const nuevoPedido = {
+          TipoMovimiento: pedido.CNOMBRECONCEPTO || "Desconocido",
+          NumeroPedido: pedido.CFOLIO || "00000",
+          Producto: pedido.CIDPRODUCTO
+            ? [
+                {
+                  ProductoID: pedido.CIDPRODUCTO,
+                  Unidades: pedido.CUNIDADES || 1,
+                  NombreProducto: pedido.CNOMBREPRODUCTO || "Sin Nombre",
+                  CodigoProducto: pedido.CCODIGOPRODUCTO || "Sin Código",
+                },
+              ]
+            : [],
+          Origen: pedido.OrigenCodigo || "Almacén Desconocido",
+          Destino: pedido.DestinoCodigo || "Destino Desconocido",
+          Fecha_Creacion: pedido.CFECHA || new Date().toISOString().split("T")[0],
+          Fecha_Compromiso: new Date(new Date().setDate(new Date().getDate() + 15))
+            .toISOString()
+            .split("T")[0],
+        };
+
+        await registrarPedido(nuevoPedido);
+        setUltimoPedidoID(pedido.CFOLIO);
+      }
+    } catch (error) {
+      console.error("❌ Error al obtener los pedidos:", error);
     }
   };
 
-  const generarCodigoDeBarras = (producto) => {
-    const codigoProducto = `${producto.producto}-${producto.cantidad}`;
-    const canvas = document.createElement('canvas');
-    JsBarcode(canvas, codigoProducto, {
-      format: 'CODE128',
-      width: 1,
-      height: 2,
-      displayValue: false,
-      margin: 5,
-    });
-    return canvas.toDataURL('image/png');
-  };
+  const registrarPedido = async (pedido) => {
+    console.log("📦 Datos enviados al backend:", JSON.stringify(pedido, null, 2));
 
-  const imprimirPedido = () => {
-    const pedidoData = { usuario, origen, destino, productos };
-    const doc = new jsPDF();
-    doc.setFontSize(12);
-    doc.text('Referencia de Pedido', 10, 10);
-    doc.text(`Usuario: ${usuario}`, 10, 20);
-    doc.text(`Origen: ${origen}`, 10, 30);
-    doc.text(`Destino: ${destino}`, 10, 40);
-    productos.forEach((prod, i) => doc.text(`${i + 1}. ${prod.producto} - Cantidad: ${prod.cantidad}`, 10, 50 + i * 10));
-    const barcode = generarCodigoDeBarras(pedidoData);
-    doc.addImage(barcode, 'PNG', 10, 150, 180, 30);
-    doc.save('Referencia_Pedido.pdf');
-  };
+    try {
+      // 1️⃣ Insertar el pedido en la base de datos
+      const resInsert = await fetch("/api/insertar-movimiento", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(pedido),
+      });
 
-  const confirmarPedido = async () => {
-    if (await validarUsuario()) {
-      imprimirPedido();
-      alert('Pedido confirmado exitosamente.');
-      setPaso(1);
-      setOrigen('');
-      setDestino('');
-      setProductos([{ producto: '', cantidad: 1 }]);
-      setMostrarCredenciales(false);
-    } else {
-      alert('Usuario o contraseña incorrectos.');
+      const responseInsertText = await resInsert.text();
+      console.log("🔍 Respuesta de insertar movimiento:", responseInsertText);
+
+      if (!resInsert.ok) {
+        throw new Error(`Error en insertar-movimiento - Status: ${resInsert.status} - Mensaje: ${responseInsertText}`);
+      }
+
+      console.log(`✅ Pedido registrado: ${pedido.NumeroPedido}`);
+
+      // 2️⃣ Enviar el correo
+      const resCorreo = await fetch("/api/enviar-correo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(pedido),
+      });
+
+      const responseCorreoText = await resCorreo.text();
+      console.log("📧 Respuesta de enviar-correo:", responseCorreoText);
+
+      if (!resCorreo.ok) {
+        throw new Error(`Error en enviar-correo - Status: ${resCorreo.status} - Mensaje: ${responseCorreoText}`);
+      }
+
+      console.log(`📨 Correo enviado con éxito para el pedido ${pedido.NumeroPedido}`);
+
+    } catch (error) {
+      console.error("❌ Error en el proceso de registrar pedido:", error);
     }
   };
 
-  const handleOrigenChange = (e) => {
-    setOrigen(e.target.value);
-    setDestino('');
-  };
-
-  const getDestinos = () => {
-    return almacenes.filter((almacen) => almacen.CCODIGOALMACEN !== origen);
-  };
-
-  const handleProductoChange = (index, value) => {
-    const nuevosProductos = [...productos];
-    nuevosProductos[index].producto = value;
-    setProductos(nuevosProductos);
-  };
-
-  const agregarProducto = () => {
-    setProductos([...productos, { producto: '', cantidad: 1 }]);
-  };
-
-  const eliminarProducto = (index) => {
-    const nuevosProductos = productos.filter((_, i) => i !== index);
-    setProductos(nuevosProductos);
-  };
-
-  const productosFiltrados = productosDisponibles.filter((producto) =>
-    producto.CNOMBREPRODUCTO.toLowerCase().includes(filtroProductos.toLowerCase())
-  );
-
-  return (
-    <div>
-      <Navbar />
-      <div className={styles.formContainer}>
-        <div className={styles.navbarSpacing}></div>
-        {paso === 1 && (
-          <form className={styles.formulario}>
-            <h3 className={styles.tituloH3}>Paso 1: Selección de Origen y Destino</h3>
-            <div>
-              <label className={styles.label}>Origen:</label>
-              <select className={styles.select} value={origen} onChange={handleOrigenChange}>
-                <option value="">Seleccione un origen</option>
-                {almacenes.map((almacen) => (
-                  <option key={almacen.CIDALMACEN} value={almacen.CCODIGOALMACEN}>
-                    {almacen.CNOMBREALMACEN}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className={styles.label}>Destino:</label>
-              <select
-                className={styles.select}
-                value={destino}
-                onChange={(e) => setDestino(e.target.value)}
-                disabled={!origen}
-              >
-                <option value="">Seleccione un destino</option>
-                {getDestinos().map((almacen) => (
-                  <option key={almacen.CIDALMACEN} value={almacen.CCODIGOALMACEN}>
-                    {almacen.CNOMBREALMACEN}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className={styles.button}>
-              <button type="button" onClick={() => setPaso(2)} disabled={!origen || !destino}>
-                Siguiente
-              </button>
-            </div>
-          </form>
-        )}
-        {paso === 2 && (
-          <form className={styles.formulario}>
-            <h3 className={styles.tituloH3}>Paso 2: Agregar Productos</h3>
-            
-            {productos.map((producto, index) => (
-              <div key={index} className={styles.productRow}>
-                <select
-                  className={styles.select}
-                  value={producto.producto}
-                  onChange={(e) => handleProductoChange(index, e.target.value)}
-                >
-                  <option value="">Seleccione un producto</option>
-                  {productosFiltrados.map((prod) => (
-                    <option key={prod.CIDPRODUCTO} value={prod.CNOMBREPRODUCTO}>
-                      {prod.CNOMBREPRODUCTO}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  className={styles.input}
-                  type="number"
-                  placeholder="Cantidad"
-                  value={producto.cantidad}
-                  onChange={(e) =>
-                    setProductos((prev) =>
-                      prev.map((p, i) =>
-                        i === index ? { ...p, cantidad: e.target.value } : p
-                      )
-                    )
-                  }
-                  min="1"
-                />
-                <button type="button" onClick={() => eliminarProducto(index)}>
-                  Eliminar
-                </button>
-              </div>
-            ))}
-            <div className={styles.button}>
-              <button type="button" onClick={agregarProducto}>
-                Agregar Producto
-              </button>
-              <button type="button" onClick={() => setPaso(1)}>
-                Anterior
-              </button>
-              <button type="button" onClick={() => setPaso(3)}>
-                Siguiente
-              </button>
-            </div>
-          </form>
-        )}
-        {paso === 3 && (
-          <div className={styles.formulario}>
-            <h3 className={styles.tituloH3}>Paso 3: Confirmación del Pedido</h3>
-            <p><strong>Origen:</strong> {origen}</p>
-            <p><strong>Destino:</strong> {destino}</p>
-            <h4>Productos seleccionados:</h4>
-            <ul>
-              {productos.map((prod, index) => (
-                <li key={index}>
-                  {prod.producto} - Cantidad: {prod.cantidad}
-                </li>
-              ))}
-            </ul>
-            {mostrarCredenciales ? (
-              <div>
-                <label>Usuario:</label>
-                <input
-                  type="text"
-                  value={usuario}
-                  onChange={(e) => setUsuario(e.target.value)}
-                  className={styles.input}
-                />
-                <label>Contraseña:</label>
-                <input
-                  type="password"
-                  value={contrasena}
-                  onChange={(e) => setContrasena(e.target.value)}
-                  className={styles.input}
-                />
-                <div className={styles.button}>
-                  <button type="button" onClick={confirmarPedido}>
-                    Confirmar Pedido
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className={styles.button}>
-                <button type="button" onClick={() => setPaso(2)}>
-                  Anterior
-                </button>
-                <button type="button" onClick={() => setMostrarCredenciales(true)}>
-                  Continuar
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
+  return null; // Si este componente no tiene UI, mantenerlo así
 };
 
 export default PedidoNuevo;

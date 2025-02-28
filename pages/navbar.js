@@ -1,14 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faHomeLg, faShoppingCart, faSignOut, faBars } from '@fortawesome/free-solid-svg-icons'; // Icono de menú hamburguesa
+import { faHome, faSignOutAlt, faBars, faUser } from '@fortawesome/free-solid-svg-icons';
 import styles from './navbar.module.css';
 
 const Navbar = () => {
   const [name, setName] = useState('');
-  const [isMenuOpen, setIsMenuOpen] = useState(false); // Estado para controlar la visibilidad del menú
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
-  // Leer el nombre del usuario desde el localStorage
   useEffect(() => {
     const storedName = localStorage.getItem('name');
     if (storedName) {
@@ -16,14 +15,15 @@ const Navbar = () => {
     }
   }, []);
 
-  // Función para cerrar sesión
   const handleLogout = () => {
     localStorage.removeItem('username');
     localStorage.removeItem('name');
-    window.location.href = '/'; // Redirigir al login
+    localStorage.removeItem('token');
+    localStorage.removeItem('rol');
+    localStorage.removeItem('origen');
+    window.location.href = '/';
   };
 
-  // Función para alternar el menú
   const toggleMenu = () => {
     setIsMenuOpen(!isMenuOpen);
   };
@@ -32,29 +32,27 @@ const Navbar = () => {
     <nav className={styles.navbar}>
       <span className={styles.navbarBrand}>CUBYLAM & CHALET</span>
 
-      {/* Botón de menú en pantallas pequeñas */}
       <button className={styles.menuButton} onClick={toggleMenu}>
         <FontAwesomeIcon icon={faBars} />
       </button>
 
-      {/* Menú de navegación */}
       <div className={`${styles.navbarNav} ${isMenuOpen ? styles.showMenu : ''}`}>
         {name ? (
           <>
-            <span className={styles.navLink}>Hola, {name}</span>
+            <span className={styles.navLink}>
+              <FontAwesomeIcon icon={faUser} className={styles.userIcon} /> Hola, {name}
+            </span>
             <Link href="/dashboard">
-              <p className={styles.cartLink}>
-                <FontAwesomeIcon icon={faHomeLg} />
+              <p className={styles.navLink}>
+                <FontAwesomeIcon icon={faHome} /> 
               </p>
             </Link>
-            <Link href="/">
-              <p className={styles.cartLink} onClick={handleLogout}>
-                <FontAwesomeIcon icon={faSignOut} />
-              </p>
-            </Link>
+            <p className={styles.navLink} onClick={handleLogout}>
+              <FontAwesomeIcon icon={faSignOutAlt} /> Cerrar sesión
+            </p>
           </>
         ) : (
-          <Link href="/signin">
+          <Link href="/">
             <button className={`${styles.button} ${styles.loginButton}`}>Iniciar sesión</button>
           </Link>
         )}
