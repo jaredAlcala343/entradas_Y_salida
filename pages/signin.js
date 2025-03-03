@@ -1,4 +1,5 @@
-import { useState } from 'react';
+"use client";
+import { useState, useEffect } from 'react';
 import Image from "next/image";
 import { useRouter } from 'next/navigation';
 import styles from './signin.module.css';
@@ -8,23 +9,40 @@ export default function SignIn() {
   const [password, setPassword] = useState('');
   const router = useRouter();
 
+  useEffect(() => {
+    const handleUserInteraction = () => {
+      const audio = new Audio('/tuca-carajo.mp3');
+      audio.play().catch((error) => console.error('Error al reproducir el sonido:', error));
+
+      document.removeEventListener('click', handleUserInteraction);
+    };
+
+    document.addEventListener('click', handleUserInteraction);
+
+    return () => {
+      document.removeEventListener('click', handleUserInteraction);
+    };
+  }, []);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
     const response = await fetch('/api/auth/login', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
     });
 
     const data = await response.json();
 
-    if (response.ok && data.redirectUrl) {
-      localStorage.setItem('username', username); // Guardar username en localStorage
-      localStorage.setItem('name', data.userData.name); // Guardar nombre del usuario en localStorage
-      router.push(data.redirectUrl);
+    if (response.ok && data.userData) {
+      localStorage.setItem('token', data.userData.token);
+      localStorage.setItem('username', username);
+      localStorage.setItem('name', data.userData.name);  // Asegurar que se guarda el nombre
+      localStorage.setItem('rol', data.userData.rol);
+      localStorage.setItem('almacen', data.userData.origen);
+
+      router.push('/dashboard');
     } else {
       alert(data.message || 'Login failed');
     }
@@ -33,11 +51,11 @@ export default function SignIn() {
   return (
     <div className={styles.loginContainer}>
       <form onSubmit={handleSubmit} className={styles.loginForm}>
-        <h1>BIENVENIDO A CONTROL DE INVENTARIOS</h1>
+        <h1>Cagajo APP</h1>
         <h4>POR FAVOR INGRESE SUS CREDENCIALES</h4>
 
         <label>
-          Numero de Empleado:
+          Ingrese su correo:
           <input
             type="text"
             value={username}
@@ -55,13 +73,13 @@ export default function SignIn() {
         <button type="submit">Login</button>
       </form>
       <div className={styles.loginImage}>
-      <Image
-        className={styles.loginImage}
-        src="/inicio.jpg"
-        alt="Imagen de inicio"
-        width={650}
-        height={400}
-      />
+        <Image
+          className={styles.loginImage}
+          src="/login.jpg"
+          alt="Imagen de inicio"
+          width={650}
+          height={400}
+        />
       </div>
     </div>
   );

@@ -1,106 +1,194 @@
-import React, { useState } from 'react';
-import styles from './EntregaDomicilio.module.css';
-import Navbar from './navbar';
+import React, { useState, useEffect } from "react";
+import styles from "./EntregaDomicilio.module.css";
+import Navbar from "./navbar";
+import * as XLSX from 'xlsx'; // Para generar archivos Excel
+import { useRouter } from 'next/router'; 
 
-const PanelEntregas = () => {
-  const [factura, setFactura] = useState('');
-  const [datosCliente, setDatosCliente] = useState(null);
-  const [usuario, setUsuario] = useState('');
-  const [password, setPassword] = useState('');
-  const [entregaConfirmada, setEntregaConfirmada] = useState(false);
+const Inventario = () => {
+  const [almacenes, setAlmacenes] = useState([]);
+  const [almacenSeleccionado, setAlmacenSeleccionado] = useState("");
+  const [inventarios, setInventarios] = useState([]);
+  const [cargando, setCargando] = useState(false);
+  const [paginaActual, setPaginaActual] = useState(1);
+  const itemsPorPagina = 30;
+  const router = useRouter();
 
-  // Simulando base de datos de facturas y clientes
-  const facturas = [
-    {
-      facturaId: 'FAC12345',
-      cliente: 'Juan Pérez',
-      direccion: 'Calle Falsa 123, Ciudad Ejemplo',
-      telefono: '555-1234',
-    },
-    {
-      facturaId: 'FAC67890',
-      cliente: 'María López',
-      direccion: 'Avenida Siempre Viva 742, Springfield',
-      telefono: '555-5678',
-    },
-  ];
+  // Obtener lista de almacenes
+  const obtenerAlmacenes = async () => {
+    setCargando(true);
+    try {
+      const res = await fetch("/api/almacenes");
+      if (!res.ok) {
+        alert("Error al obtener los almacenes");
+        return;
+      }
 
-  const buscarFactura = () => {
-    const facturaEncontrada = facturas.find((f) => f.facturaId === factura);
-    if (facturaEncontrada) {
-      setDatosCliente(facturaEncontrada);
-    } else {
-      alert('Factura no encontrada');
-      setDatosCliente(null);
+      const data = await res.json();
+      setAlmacenes(data);
+    } catch (error) {
+      console.error("Error al obtener almacenes:", error);
+      alert("Hubo un error al obtener los almacenes");
+    } finally {
+      setCargando(false);
     }
   };
 
-  const confirmarEnvio = () => {
-    if (usuario && password) {
-      // Aquí puedes integrar un sistema real de autenticación
-      alert('Envío confirmado');
-      setEntregaConfirmada(true);
+  // Obtener inventario de un almacén
+  const obtenerInventarioPorAlmacen = async () => {
+    if (!almacenSeleccionado) return;
 
-      // Reiniciar el formulario después de confirmar
-      setFactura('');
-      setDatosCliente(null);
-      setUsuario('');
-      setPassword('');
-    } else {
-      alert('Por favor ingresa usuario y contraseña');
+    setCargando(true);
+    try {
+      const res = await fetch(`/api/inventarios?almacenID=${almacenSeleccionado}`);
+      if (!res.ok) {
+        alert("Error al obtener el inventario");
+        return;
+      }
+
+      const data = await res.json();
+      setInventarios(data);
+    } catch (error) {
+      console.error("Error al obtener inventario:", error);
+      alert("Hubo un error al obtener el inventario");
+    } finally {
+      setCargando(false);
     }
+  };
+
+  useEffect(() => {
+    obtenerAlmacenes();
+  }, []);
+
+  useEffect(() => {
+    obtenerInventarioPorAlmacen();
+  }, [almacenSeleccionado]);
+
+  // Calcular los items a mostrar en la página actual
+  const indexUltimoItem = paginaActual * itemsPorPagina;
+  const indexPrimerItem = indexUltimoItem - itemsPorPagina;
+  const itemsActuales = inventarios.slice(indexPrimerItem, indexUltimoItem);
+
+  // Cambiar de página
+  const cambiarPagina = (numeroPagina) => setPaginaActual(numeroPagina);
+
+  // Calcular el número total de páginas
+  const numeroTotalPaginas = Math.ceil(inventarios.length / itemsPorPagina);
+
+  // Generar botones de paginación
+  const renderizarBotonesPaginacion = () => {
+    const botones = [];
+    for (let i = 1; i <= numeroTotalPaginas; i++) {
+      if (i === 1 || i === numeroTotalPaginas || (i >= paginaActual - 2 && i <= paginaActual + 2)) {
+        botones.push(
+          <button
+            key={i}
+            onClick={() => cambiarPagina(i)}
+            className={paginaActual === i ? styles.active : ""}
+          >
+            {i}
+          </button>
+        );
+      } else if (i === 2 || i === numeroTotalPaginas - 1) {
+        botones.push(<span key={i}>...</span>);
+      }
+    }
+    return botones;
+  };
+
+  // Descargar inventario como Excel con tabla dinámica
+  const descargarInventario = () => {
+    const ws = XLSX.utils.json_to_sheet(inventarios, { header: ["CCODIGOPRODUCTO", "CNOMBREPRODUCTO", "EXISTENCIA_TOTAL_PRODUCTO"] }); // Descargar todo el inventario
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Inventario");
+
+    // Crear la tabla dinámica
+    const pivotTable = XLSX.utils.aoa_to_sheet([
+      ["", "", "", "Pivot Table"],
+      ["", "", "", "Sum of EXISTENCIA_TOTAL_PRODUCTO"],
+      ["", "CCODIGOPRODUCTO", "CNOMBREPRODUCTO", "Values"],
+      ["", "CCODIGOPRODUCTO", "CNOMBREPRODUCTO", "EXISTENCIA_TOTAL_PRODUCTO"],
+      ["", "CCODIGOPRODUCTO", "CNOMBREPRODUCTO", "EXISTENCIA_TOTAL_PRODUCTO"]
+    ]);
+
+    XLSX.utils.book_append_sheet(wb, pivotTable, "Tabla Dinámica");
+
+    XLSX.writeFile(wb, "inventario.xlsx");
+  };
+
+  // Realizar auditoría de inventario
+  const realizarAuditoria = () => {
+    router.push('/auditoria-inventario');
   };
 
   return (
     <div>
       <Navbar />
-      <div className={styles.panelContainer}>
-        <h3>Panel de Entregas</h3>
+      <div className={styles.container}>
+        <h1 className={styles.title}>Gestión de Inventarios</h1>
 
-        {/* Paso 1: Solicitar Factura */}
-        {!datosCliente ? (
-          <div>
-            <h4>Ingresa el Número de Factura</h4>
-            <input
-              type="text"
-              placeholder="Número de Factura"
-              value={factura}
-              onChange={(e) => setFactura(e.target.value)}
-            />
-            <button onClick={buscarFactura}>Buscar Factura</button>
+        {/* Selección de Almacén */}
+        <div className={styles.panelContainer}>
+          <h2>Seleccionar Almacén</h2>
+          <select
+            value={almacenSeleccionado}
+            onChange={(e) => setAlmacenSeleccionado(e.target.value)}
+          >
+            <option value="">Selecciona un almacén</option>
+            {almacenes.map((almacen) => (
+              <option key={almacen.CIDALMACEN} value={almacen.CIDALMACEN}>
+                {almacen.CNOMBREALMACEN}
+              </option>
+            ))}
+          </select>
+          <div className={styles.buttons1y2}>
+            <button 
+              onClick={descargarInventario} 
+              className={styles.Inventario}
+              disabled={!almacenSeleccionado} // Deshabilitar si no hay almacén seleccionado
+            >
+              Descargar Inventario
+            </button>
+            <button onClick={realizarAuditoria} className={styles.Auditoria}>
+              Auditoría de Inventario
+            </button>
           </div>
-        ) : (
-          // Paso 2: Mostrar Datos del Cliente
-          <div>
-            <h4>Factura: {datosCliente.facturaId}</h4>
-            <p><strong>Cliente:</strong> {datosCliente.cliente}</p>
-            <p><strong>Dirección:</strong> {datosCliente.direccion}</p>
-            <p><strong>Teléfono:</strong> {datosCliente.telefono}</p>
+        </div>
 
-            {/* Paso 3: Confirmar Envío */}
-            {!entregaConfirmada && (
-              <div>
-                <h4>Confirmar Envío</h4>
-                <input
-                  type="text"
-                  placeholder="Usuario"
-                  value={usuario}
-                  onChange={(e) => setUsuario(e.target.value)}
-                />
-                <input
-                  type="password"
-                  placeholder="Contraseña"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-                <button onClick={confirmarEnvio}>Confirmar Envío</button>
+        {/* Inventario por Almacén */}
+        <div className={styles.panelContainer}>
+          <h2>Inventario de Almacén</h2>
+
+          {cargando ? (
+            <p>Cargando...</p>
+          ) : (
+            <>
+              <table className={styles.table}>
+                <thead>
+                  <tr>
+                    <th>ID Producto</th>
+                    <th>Nombre Producto</th>
+                    <th>Existencia Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {itemsActuales.map((producto, index) => (
+                    <tr key={index}>
+                      <td>{producto.CCODIGOPRODUCTO}</td>
+                      <td>{producto.CNOMBREPRODUCTO}</td>
+                      <td>{producto.EXISTENCIA_TOTAL_PRODUCTO}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className={styles.pagination}>
+                {renderizarBotonesPaginacion()}
               </div>
-            )}
-          </div>
-        )}
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
 };
 
-export default PanelEntregas;
+export default Inventario;
