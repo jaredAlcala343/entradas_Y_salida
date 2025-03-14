@@ -65,7 +65,7 @@ export default async function handler(req, res) {
     }
 
     const productosHTML = Producto.map(
-      (prod) => `<li><strong>${prod.Producto}</strong> - ${prod.Unidades} unidades</li>`
+      (prod) => `<li><strong>${prod.NombreProducto}</strong> - ${prod.Unidades} unidades</li>`
     ).join("");
 
     const mailOptions = {
@@ -99,12 +99,10 @@ export default async function handler(req, res) {
       const info = await transporter.sendMail(mailOptions);
       console.log(`✅ Correo enviado con éxito a ${Correo} (${info.messageId})`);
 
-      const baseUrl = process.env.NEXT_PUBLIC_API_URL || `http://${req.headers.host}`;
-      const apiUrl = `${baseUrl}/api/Actualizar-almacen`;
+      console.log("🔄 Llamando a la API de actualización de almacén...");
 
-      console.log(`🔄 Llamando a la API de actualización de almacén en: ${apiUrl}`);
-
-      const updateResponse = await fetch(apiUrl, {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+      const updateResponse = await fetch(`${apiUrl}/api/Actualizar-almacen`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ NumeroPedido })
