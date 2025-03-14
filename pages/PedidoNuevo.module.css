@@ -33,12 +33,7 @@
   padding-bottom: 5px;
 }
 
-h5 {
-  font-size: 1.2rem;
-  color: #495057;
-  margin-bottom: 10px;
-  font-weight: 600;
-}
+
 
 /* Clase para el formulario */
 .formulario {
@@ -197,17 +192,7 @@ h5 {
   font-weight: 500;
 }
 
-ul {
-  list-style: none;
-  padding: 0;
-}
 
-li {
-  font-size: 1rem;
-  margin-bottom: 8px;
-  color: #495057;
-  font-weight: 500;
-}
 
 .confirmContainer {
   display: flex;
