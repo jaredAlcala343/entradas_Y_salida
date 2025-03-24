@@ -11,7 +11,7 @@ export default function SignIn() {
 
   useEffect(() => {
     const handleUserInteraction = () => {
-      const audio = new Audio('/tuca-carajo.mp3');
+      const audio = new Audio('/loginsound.mp3');
       audio.play().catch((error) => console.error('Error al reproducir el sonido:', error));
 
       document.removeEventListener('click', handleUserInteraction);
@@ -51,7 +51,7 @@ export default function SignIn() {
   return (
     <div className={styles.loginContainer}>
       <form onSubmit={handleSubmit} className={styles.loginForm}>
-        <h1>Cagajo APP</h1>
+        <h1>Traspasos Internos</h1>
         <h4>POR FAVOR INGRESE SUS CREDENCIALES</h4>
 
         <label>
@@ -75,7 +75,7 @@ export default function SignIn() {
       <div className={styles.loginImage}>
         <Image
           className={styles.loginImage}
-          src="/login.jpg"
+          src="/Mockup-logo.jpg"
           alt="Imagen de inicio"
           width={650}
           height={400}
