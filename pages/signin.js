@@ -75,7 +75,7 @@ export default function SignIn() {
       <div className={styles.loginImage}>
         <Image
           className={styles.loginImage}
-          src="/Mockup-logo.jpg"
+          src="/logoSt.jpg"
           alt="Imagen de inicio"
           width={650}
           height={400}
