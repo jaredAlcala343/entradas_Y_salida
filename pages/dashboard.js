@@ -124,13 +124,13 @@ export default function Dashboard() {
       </div>
 
       <div className={styles.actionButtons}>
-        {(userRole === "admin" || userRole === "empleado" || userRole === "supervisor") && (
+        {(userRole === "Admin" || userRole === "Empleado" || userRole === "Supervisor") && (
           <>
             <button onClick={() => handleActionRedirect("/SurtirPedido")} className={styles.actionButton}>Surtir Productos</button>
             <button onClick={() => handleActionRedirect("/RecibirPedido")} className={styles.actionButton}>Recibir Productos</button>
           </>
         )}
-        {(userRole === "admin" || userRole === "inventarios") && (
+        {(userRole === "Admin" || userRole === "Inventarios") && (
           <button onClick={() => handleActionRedirect("/EntregaDomicilio")} className={styles.actionButton}>Inventarios</button>
         )}
       </div>

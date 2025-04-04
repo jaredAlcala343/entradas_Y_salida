@@ -23,7 +23,7 @@ export default async function handler(req, res) {
 
     const user = result.recordset[0];
 
-    if (password.trim() !== user.Contraseña.trim()) {
+    if (password.trim() !== user.contraseña.trim()) {
       console.log('❌ Contraseña incorrecta');
       return res.status(401).json({ message: 'Invalid credentials' });
     }
