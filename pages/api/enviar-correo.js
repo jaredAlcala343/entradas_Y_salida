@@ -65,7 +65,7 @@ export default async function handler(req, res) {
     }
 
     const productosHTML = Producto.map(
-      (prod) => `<li><strong>${prod.NombreProducto}</strong> - ${prod.Unidades} unidades</li>`
+      (prod) => `<li><strong>${prod.Producto}</strong> - ${prod.Unidades} unidades</li>`
     ).join("");
 
     const mailOptions = {

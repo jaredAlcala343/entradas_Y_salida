@@ -45,6 +45,7 @@ export default async function handler(req, res) {
             admAlmacenes AS al_origen ON m.CIDALMACEN = al_origen.CIDALMACEN
         WHERE 
             d.CFECHA BETWEEN DATEADD(HOUR, -24, SYSDATETIME()) AND SYSDATETIME()
+            and m.CIDDOCUMENTODE = 34
       )
       SELECT * FROM Movimientos WHERE DestinoID <> 99
       ORDER BY NumeroPedido DESC;

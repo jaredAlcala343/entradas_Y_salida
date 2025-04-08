@@ -11,11 +11,11 @@ export default async function handler(req, res) {
 
     console.log("📌 Buscando el movimiento más reciente...");
     const movimiento = await pool.request().query(`
-      SELECT TOP 1 CIDMOVIMIENTO, CIDALMACEN
+     SELECT top 5 CIDMOVIMIENTO, CIDALMACEN
       FROM admMovimientos
       WHERE CIDDOCUMENTODE = 34
-      AND CIDDOCUMENTO = 0
-      ORDER BY CFECHA DESC;
+	    and CIDDOCUMENTO = 0
+      ORDER BY CIDMOVIMIENTO desc;
     `);
 
     if (movimiento.recordset.length === 0) {
