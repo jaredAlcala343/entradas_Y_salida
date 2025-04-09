@@ -23,7 +23,7 @@ const PedidoNuevo = () => {
     };
 
     fetchData();
-    const intervalId = setInterval(() => obtenerPedidos(), 18000); // 3 minutos
+    const intervalId = setInterval(() => obtenerPedidos(), 25000); 
 
     return () => clearInterval(intervalId);
   }, []);
