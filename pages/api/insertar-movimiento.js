@@ -29,31 +29,16 @@ export default async function handler(req, res) {
     }
 
     const fechaHoy = new Date().toISOString().split("T")[0];
-    const pool = await connectToDatabase();
-    const numeroPedidoStr = String(NumeroPedido);
-
-    const pedidoExistente = await pool
-      .request()
-      .input("NumeroPedido", sql.NVarChar, numeroPedidoStr)
-      .input("Fecha_Creacion", sql.Date, fechaHoy)
-      .query(`
-        SELECT COUNT(*) AS count 
-        FROM Pedidos 
-        WHERE NumeroPedido = @NumeroPedido AND Fecha_Creacion = @Fecha_Creacion
-      `);
-
-    if (pedidoExistente.recordset[0].count > 0) {
-      console.log(`⏩ Pedido ${numeroPedidoStr} ya se registró hoy. No se insertará nuevamente.`);
-      return res.status(200).json({ success: true, message: "El pedido ya está registrado hoy." });
-    }
-
     const fechaCompromiso = new Date(new Date().setDate(new Date().getDate() + 15))
       .toISOString()
       .split("T")[0];
 
+    const pool = await connectToDatabase();
+    const numeroPedidoStr = String(NumeroPedido);
+
     for (const prod of Producto) {
       const { ProductoID, Unidades } = prod || {};
-      
+
       if (!ProductoID || !Unidades) {
         console.error("❌ Producto inválido en la solicitud.", prod);
         return res.status(400).json({ message: "Los datos del producto son incorrectos." });

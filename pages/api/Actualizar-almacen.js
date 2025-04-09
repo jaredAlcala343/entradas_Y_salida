@@ -9,79 +9,79 @@ export default async function handler(req, res) {
     console.log("🔄 Conectando a la base de datos...");
     const pool = await connectToDatabase();
 
-    // 1. Buscar el movimiento más reciente
-    console.log("📌 Buscando el movimiento más reciente...");
-    const movimiento = await pool.request().query(`
-      SELECT top 1 CIDMOVIMIENTO, CIDALMACEN
+    // 1. Obtener el CIDDOCUMENTO más reciente con CIDDOCUMENTODE = 34
+    console.log("📌 Buscando el documento más reciente...");
+    const docResult = await pool.request().query(`
+      SELECT TOP 1 CIDDOCUMENTO 
       FROM admMovimientos
       WHERE CIDDOCUMENTODE = 34
-      ORDER BY CIDDOCUMENTO desc;
+      ORDER BY CIDDOCUMENTO DESC;
     `);
 
-    if (movimiento.recordset.length === 0) {
-      console.warn("⚠️ No se encontraron movimientos para actualizar.");
+    if (docResult.recordset.length === 0) {
       return res.status(404).json({ success: false, message: "No se encontraron movimientos para actualizar." });
     }
 
-    const { CIDMOVIMIENTO, CIDALMACEN } = movimiento.recordset[0];
-    console.log(`📋 Movimiento encontrado: CIDMOVIMIENTO=${CIDMOVIMIENTO}, CIDALMACEN=${CIDALMACEN}`);
+    const CIDDOCUMENTO_REF = docResult.recordset[0].CIDDOCUMENTO;
+    console.log(`📋 Documento referencia: CIDDOCUMENTO = ${CIDDOCUMENTO_REF}`);
 
-    // 2. Verificar y actualizar las siguientes líneas
-    let siguienteMovimiento = await pool.request().query(`
+    // 2. Obtener el CIDMOVIMIENTO de inicio para ese documento
+    const movInicio = await pool.request()
+      .input("CIDDOCUMENTO", sql.Int, CIDDOCUMENTO_REF)
+      .query(`
+        SELECT MIN(CIDMOVIMIENTO) AS CIDMOVIMIENTO_INICIO, MAX(CIDALMACEN) AS CIDALMACEN
+        FROM admMovimientos
+        WHERE CIDDOCUMENTO = @CIDDOCUMENTO;
+      `);
+
+    const { CIDMOVIMIENTO_INICIO, CIDALMACEN } = movInicio.recordset[0];
+    console.log(`🔍 Inicio desde CIDMOVIMIENTO = ${CIDMOVIMIENTO_INICIO}, Almacén actual: ${CIDALMACEN}`);
+
+    // 3. Obtener todos los movimientos siguientes desde el inicio
+    const movimientos = await pool.request().query(`
       SELECT CIDMOVIMIENTO, CIDDOCUMENTO, CIDALMACEN
       FROM admMovimientos
-      WHERE CIDMOVIMIENTO > ${CIDMOVIMIENTO}
-      ORDER BY CIDMOVIMIENTO asc;
+      WHERE CIDMOVIMIENTO >= ${CIDMOVIMIENTO_INICIO}
+      ORDER BY CIDMOVIMIENTO ASC;
     `);
 
-    for (let movimientoSiguiente of siguienteMovimiento.recordset) {
-      const { CIDMOVIMIENTO: CIDSiguiente, CIDDOCUMENTO, CIDALMACEN: CIDAlmacenSiguiente } = movimientoSiguiente;
+    const actualizados = [];
 
-      // Si CIDDOCUMENTO es 0, verificar si el CIDALMACEN es diferente al de la respuesta del primer query
-      if (CIDDOCUMENTO === 0) {
-        if (CIDAlmacenSiguiente !== CIDALMACEN) {
-          console.log(`🔄 Actualizando almacén del movimiento ${CIDSiguiente} a 21...`);
-          await pool.request()
-            .input("CIDMOVIMIENTO", sql.Int, CIDSiguiente)
-            .query(`
-              UPDATE admMovimientos
-              SET CIDALMACEN = 21
-              WHERE CIDMOVIMIENTO = @CIDMOVIMIENTO;
-            `);
-          console.log(`✅ Almacén actualizado para el movimiento ${CIDSiguiente}`);
-        }
-      } else {
-        // Verificar si el CIDALMACEN del siguiente movimiento es diferente al del primer query (CIDALMACEN)
-        if (CIDAlmacenSiguiente !== CIDALMACEN) {
-          console.log(`🔄 Actualizando almacén del movimiento ${CIDSiguiente} a 21...`);
-          await pool.request()
-            .input("CIDMOVIMIENTO", sql.Int, CIDSiguiente)
-            .query(`
-              UPDATE admMovimientos
-              SET CIDALMACEN = 21
-              WHERE CIDMOVIMIENTO = @CIDMOVIMIENTO;
-            `);
-          console.log(`✅ Almacén actualizado para el movimiento ${CIDSiguiente}`);
-        }
+    for (let movimiento of movimientos.recordset) {
+      const { CIDMOVIMIENTO, CIDDOCUMENTO, CIDALMACEN: ALMACEN_ACTUAL } = movimiento;
+
+      if (CIDDOCUMENTO > CIDDOCUMENTO_REF) {
+        console.log(`🚫 Se encontró un documento mayor (${CIDDOCUMENTO}) al de referencia (${CIDDOCUMENTO_REF}). Deteniendo actualización.`);
+        break;
+      }
+
+      if (ALMACEN_ACTUAL !== CIDALMACEN) {
+        console.log(`🔄 Actualizando almacén del movimiento ${CIDMOVIMIENTO} a 21...`);
+        await pool.request()
+          .input("CIDMOVIMIENTO", sql.Int, CIDMOVIMIENTO)
+          .query(`
+            UPDATE admMovimientos
+            SET CIDALMACEN = 21
+            WHERE CIDMOVIMIENTO = @CIDMOVIMIENTO;
+          `);
+        actualizados.push(CIDMOVIMIENTO);
+        console.log(`✅ Movimiento ${CIDMOVIMIENTO} actualizado.`);
       }
     }
 
-    // 3. Verificar la actualización de los almacenes
-    console.log("🔍 Verificando actualizaciones...");
-    const verificacion = await pool.request().query(`
-      SELECT CIDMOVIMIENTO, CIDALMACEN
-      FROM admMovimientos
-      WHERE CIDMOVIMIENTO IN (${siguienteMovimiento.recordset.map(mov => mov.CIDMOVIMIENTO).join(',')});
-    `);
-
-    // Verificar si todos los almacenes han sido actualizados correctamente a 21
-    if (verificacion.recordset.every(mov => mov.CIDALMACEN === 21)) {
-      console.log("✅ Todos los movimientos fueron actualizados correctamente.");
-      return res.status(200).json({ success: true, message: "Almacenes actualizados correctamente." });
+    if (actualizados.length > 0) {
+      return res.status(200).json({
+        success: true,
+        message: `Se actualizaron ${actualizados.length} movimientos.`,
+        actualizados,
+      });
     } else {
-      console.error("❌ Error: No todos los movimientos fueron actualizados correctamente.");
-      return res.status(500).json({ success: false, message: "Error: No todos los movimientos fueron actualizados correctamente." });
+      return res.status(200).json({
+        success: true,
+        message: "No se realizaron cambios, todos los almacenes ya estaban correctos.",
+      });
     }
+
   } catch (error) {
     console.error("❌ Error al actualizar los movimientos:", error);
     return res.status(500).json({
