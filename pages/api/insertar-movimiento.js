@@ -44,6 +44,20 @@ export default async function handler(req, res) {
         return res.status(400).json({ message: "Los datos del producto son incorrectos." });
       }
 
+      // Verificar si ya existe el producto para ese pedido
+      const checkDuplicate = await pool.request()
+        .input("NumeroPedido", sql.NVarChar, numeroPedidoStr)
+        .input("Producto", sql.Int, ProductoID)
+        .query(`
+          SELECT 1 FROM Pedidos
+          WHERE NumeroPedido = @NumeroPedido AND Producto = @Producto
+        `);
+
+      if (checkDuplicate.recordset.length > 0) {
+        console.warn(`⚠️ Producto ${ProductoID} ya está registrado en el pedido ${numeroPedidoStr}. Se omite.`);
+        continue;
+      }
+
       console.log("📌 Insertando pedido con:", { origenInt, destinoInt, ProductoID, Unidades });
 
       await pool

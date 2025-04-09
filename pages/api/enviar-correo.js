@@ -9,65 +9,78 @@ export default async function handler(req, res) {
   }
 
   console.log("📩 Recibiendo datos para enviar correo:", req.body);
+
   try {
-    let { Origen, Destino, NumeroPedido, Producto } = req.body;
+    let { Origen, Destino, NumeroPedido } = req.body;
 
     Origen = Origen.toString();
     Destino = Destino.toString();
 
-    if (!Origen || !Destino || !NumeroPedido || !Array.isArray(Producto) || Producto.length === 0) {
-      console.error("❌ Datos inválidos:", { Origen, Destino, NumeroPedido, Producto });
+    if (!Origen || !Destino || !NumeroPedido) {
+      console.error("❌ Datos inválidos:", { Origen, Destino, NumeroPedido });
       return res.status(400).json({ message: "Datos inválidos en la petición" });
     }
 
     const pool = await connectToDatabase();
 
-    console.log("🔍 Obteniendo datos del almacén y correo del usuario asignado al origen...");
+    // 1. Obtener productos del pedido con código
+    const productosResult = await pool.request()
+      .input("NumeroPedido", sql.VarChar, NumeroPedido)
+      .query(`
+        SELECT 
+          p.Producto AS CIDPRODUCTO,
+          p.Unidades,
+          pr.CCODIGOPRODUCTO
+        FROM Pedidos p
+        JOIN admProductos pr ON p.Producto = pr.CIDPRODUCTO
+        WHERE p.NumeroPedido = @NumeroPedido
+      `);
 
-    const query = `
-      SELECT DISTINCT u.Correo, 
-                      a_origen.CNOMBREALMACEN AS NombreAlmacenOrigen, 
-                      a_destino.CNOMBREALMACEN AS NombreAlmacenDestino 
-      FROM UsuariosLocal AS u
-      JOIN admAlmacenes AS a_origen ON a_origen.CCODIGOALMACEN = @Origen
-      JOIN admAlmacenes AS a_destino ON a_destino.CCODIGOALMACEN = @Destino
-      WHERE u.Clave = a_origen.CNOMBREALMACEN 
-        AND u.Correo IS NOT NULL;
-    `;
+    if (productosResult.recordset.length === 0) {
+      return res.status(404).json({ message: "No se encontraron productos para el pedido." });
+    }
 
-    console.log("🔍 Query:", query);
+    const productos = productosResult.recordset;
 
-    const result = await pool
+    // 2. Obtener correo y nombres de almacenes
+    const userResult = await pool
       .request()
       .input("Origen", sql.VarChar, Origen)
       .input("Destino", sql.VarChar, Destino)
-      .query(query);
+      .query(`
+        SELECT DISTINCT u.Correo, 
+                        a_origen.CNOMBREALMACEN AS NombreAlmacenOrigen, 
+                        a_destino.CNOMBREALMACEN AS NombreAlmacenDestino 
+        FROM UsuariosLocal AS u
+        JOIN admAlmacenes AS a_origen ON a_origen.CCODIGOALMACEN = @Origen
+        JOIN admAlmacenes AS a_destino ON a_destino.CCODIGOALMACEN = @Destino
+        WHERE u.Clave = a_origen.CNOMBREALMACEN 
+          AND u.Correo IS NOT NULL;
+      `);
 
-    console.log("📜 Resultado de la consulta:", result.recordset);
-
-    if (result.recordset.length === 0) {
-      console.error("❌ No se encontró un usuario con correo asignado al almacén de origen.");
-      return res.status(404).json({ message: "No hay usuario válido para enviar el correo" });
+    if (userResult.recordset.length === 0) {
+      return res.status(404).json({ message: "No se encontró usuario con correo para el almacén." });
     }
 
-    const { Correo, NombreAlmacenOrigen, NombreAlmacenDestino } = result.recordset[0];
+    const { Correo, NombreAlmacenOrigen, NombreAlmacenDestino } = userResult.recordset[0];
 
-    console.log(`✅ Correo encontrado: ${Correo}`);
-
-    console.log("🖨 Generando código de barras...");
+    // 3. Generar código de barras
     let barcodeImage = "";
     try {
       const canvas = createCanvas(200, 50);
       JsBarcode(canvas, NumeroPedido, { format: "CODE128", displayValue: true, fontSize: 14, textMargin: 4 });
       barcodeImage = canvas.toDataURL();
-    } catch (barcodeError) {
-      console.error("⚠️ Error generando código de barras, pero se continuará con el correo:", barcodeError);
+    } catch (err) {
+      console.error("⚠️ Error generando código de barras:", err);
     }
 
-    const productosHTML = Producto.map(
-      (prod) => `<li><strong>${prod.Producto}</strong> - ${prod.Unidades} unidades</li>`
+    // 4. Crear HTML de productos
+    const productosHTML = productos.map(
+      (prod) =>
+        `<li><strong>${prod.CCODIGOPRODUCTO}</strong> - ${prod.Unidades} unidades</li>`
     ).join("");
 
+    // 5. Preparar correo
     const mailOptions = {
       from: `"Sistema de Traspasos" <${process.env.EMAIL_USER}>`,
       to: Correo,
@@ -83,6 +96,7 @@ export default async function handler(req, res) {
       `,
     };
 
+    // 6. Enviar correo
     const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST || "smtp.gmail.com",
       port: Number(process.env.SMTP_PORT) || 465,
@@ -94,30 +108,23 @@ export default async function handler(req, res) {
       tls: { rejectUnauthorized: false },
     });
 
-    console.log("📨 Intentando enviar correo...");
-    try {
-      const info = await transporter.sendMail(mailOptions);
-      console.log(`✅ Correo enviado con éxito a ${Correo} (${info.messageId})`);
+    const info = await transporter.sendMail(mailOptions);
+    console.log(`✅ Correo enviado a ${Correo} (${info.messageId})`);
 
-      console.log("🔄 Llamando a la API de actualización de almacén...");
+    // 7. Actualizar almacén
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+    const updateResponse = await fetch(`${apiUrl}/api/Actualizar-almacen`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ NumeroPedido })
+    });
 
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
-      const updateResponse = await fetch(`${apiUrl}/api/Actualizar-almacen`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ NumeroPedido })
-      });
+    const updateResult = await updateResponse.json();
+    console.log("📦 Resultado de la actualización de almacén:", updateResult);
 
-      const updateResult = await updateResponse.json();
-      console.log("📦 Resultado de la actualización de almacén:", updateResult);
-
-      return res.status(200).json({ message: "Correo enviado y almacén actualizado con éxito" });
-    } catch (emailError) {
-      console.error("❌ Error enviando correo:", emailError);
-      return res.status(500).json({ message: "Error enviando el correo", error: emailError.message });
-    }
+    return res.status(200).json({ message: "Correo enviado y almacén actualizado" });
   } catch (error) {
-    console.error("❌ Error en enviar-correo.js:", error);
-    return res.status(500).json({ message: "Error interno del servidor", error: error.message });
+    console.error("❌ Error en el envío de correo:", error);
+    return res.status(500).json({ message: "Error interno", error: error.message });
   }
 }
