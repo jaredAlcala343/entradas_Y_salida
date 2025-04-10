@@ -45,14 +45,17 @@ export default async function handler(req, res) {
             admAlmacenes AS al_origen ON m.CIDALMACEN = al_origen.CIDALMACEN
         WHERE 
             d.CFECHA BETWEEN DATEADD(HOUR, -24, SYSDATETIME()) AND SYSDATETIME()
-            and m.CIDDOCUMENTODE = 34
+            AND m.CIDDOCUMENTODE = 34
+            AND NOT EXISTS (
+                SELECT 1 FROM Pedidos WHERE NumeroPedido = d.CFOLIO
+            )
       )
       SELECT * FROM Movimientos WHERE DestinoID <> 99
       ORDER BY NumeroPedido DESC;
     `);
 
     if (result.recordset.length === 0) {
-      console.log("🚫 No hay nuevos pedidos o todos tienen DestinoID 99.");
+      console.log("🚫 No hay nuevos pedidos o todos ya están registrados en la tabla Pedidos.");
       return res.status(200).json([]);
     }
 

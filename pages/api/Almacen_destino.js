@@ -5,72 +5,103 @@ export default async function handler(req, res) {
     return res.status(405).json({ message: "Método no permitido" });
   }
 
-  const { numeroPedido, destino } = req.body; // Recibe el número de pedido y destino (nombre del almacén)
+  const { numeroPedido } = req.body;
 
-  if (!numeroPedido || !destino) {
-    return res.status(400).json({ message: "Número de pedido y destino son requeridos." });
+  if (!numeroPedido) {
+    return res.status(400).json({ message: "Número de pedido es requerido." });
   }
 
   try {
     console.log("🔄 Conectando a la base de datos...");
     const pool = await connectToDatabase();
 
-    console.log(`📌 Buscando CIDALMACEN para el almacén: ${destino}...`);
-    const almacenConsulta = await pool.request()
-      .input("CNOMBREALMACEN", sql.VarChar, destino)
-      .query(`SELECT CIDALMACEN FROM admAlmacenes WHERE CNOMBREALMACEN = @CNOMBREALMACEN`);
+    // 1. Obtener el destino desde la tabla Pedidos
+    const pedidoRes = await pool.request()
+  .input("NumeroPedido", sql.VarChar, numeroPedido)
+  .query(`SELECT TOP 1 a.CIDALMACEN FROM Pedidos AS p, admAlmacenes as a WHERE NumeroPedido = @NumeroPedido and a.CCODIGOALMACEN = p.Destino`);
 
-    if (almacenConsulta.recordset.length === 0) {
-      console.warn("⚠️ No se encontró el almacén.");
-      return res.status(404).json({ success: false, message: "No se encontró el almacén especificado." });
+    if (pedidoRes.recordset.length === 0) {
+      return res.status(404).json({ message: "Pedido no encontrado." });
     }
 
-    const CIDALMACEN = almacenConsulta.recordset[0].CIDALMACEN;
-    console.log(`✅ Almacén encontrado: CIDALMACEN = ${CIDALMACEN}`);
+    const destinoID = pedidoRes.recordset[0].CIDALMACEN; // 👈 CAMBIO AQUÍ
 
-    console.log(`📌 Buscando movimientos para el pedido ${numeroPedido}...`);
-    const movimientosConsulta = await pool.request()
-      .input("numeroPedido", sql.VarChar, numeroPedido)
+
+    // 2. Obtener el CIDDOCUMENTO relacionado al pedido (CFOLIO)
+    const docRes = await pool.request()
+      .input("CFOLIO", sql.VarChar, numeroPedido)
       .query(`
-        SELECT TOP 1 D.CFOLIO, M.CIDMOVIMIENTO, M.CIDDOCUMENTO, M.CIDDOCUMENTODE, M.CIDPRODUCTO, M.CIDALMACEN, M.CFECHA
-        FROM admMovimientos AS M
-        JOIN admDocumentos AS D ON M.CIDDOCUMENTODE = D.CIDDOCUMENTODE
-        WHERE M.CIDDOCUMENTODE = 34 AND M.CIDALMACEN = 21 AND M.CIDDOCUMENTO = 0 AND D.CFOLIO = @numeroPedido
-        ORDER BY M.CFECHA DESC
+        SELECT TOP 1 CIDDOCUMENTO 
+        FROM admDocumentos 
+        WHERE CFOLIO = @CFOLIO AND CIDDOCUMENTODE = 34 
+        ORDER BY CIDDOCUMENTO DESC
       `);
 
-    if (movimientosConsulta.recordset.length === 0) {
-      console.warn("⚠️ No se encontraron movimientos para este pedido.");
-      return res.status(404).json({ success: false, message: "No se encontraron movimientos para este pedido." });
+    if (docRes.recordset.length === 0) {
+      return res.status(404).json({ message: "Documento no encontrado para este pedido." });
     }
 
-    console.log("✅ Movimientos encontrados:", movimientosConsulta.recordset);
+    const documentoID = docRes.recordset[0].CIDDOCUMENTO;
+    console.log(`📄 Documento relacionado encontrado: CIDDOCUMENTO = ${documentoID}`);
 
-    console.log("🔄 Actualizando almacén...");
-    await pool.request()
-      .input("numeroPedido", sql.VarChar, numeroPedido)
-      .input("Destino", sql.Int, CIDALMACEN)
-      .query(`
-        UPDATE admMovimientos
-        SET CIDALMACEN = @Destino
-        WHERE CIDMOVIMIENTO IN (
-          SELECT M.CIDMOVIMIENTO
-          FROM admMovimientos AS M
-          JOIN admDocumentos AS D ON M.CIDDOCUMENTODE = D.CIDDOCUMENTODE
-          WHERE M.CIDDOCUMENTODE = 34 
-            AND M.CIDALMACEN = 21 
-            AND M.CIDDOCUMENTO = 0 
-            AND D.CFOLIO = @numeroPedido
-        );
-      `);
+    // 3. Obtener todos los movimientos ordenados por CIDMOVIMIENTO
+    const movimientosRes = await pool.request().query(`
+      SELECT CIDMOVIMIENTO, CIDDOCUMENTO, CIDALMACEN
+      FROM admMovimientos
+      WHERE CIDDOCUMENTODE = 34
+      ORDER BY CIDMOVIMIENTO ASC;
+    `);
 
-    console.log("✅ Almacén actualizado correctamente.");
-    return res.status(200).json({ success: true, message: "Almacén actualizado correctamente." });
+    const movimientos = movimientosRes.recordset;
+    const actualizados = [];
+
+    let enRango = false;
+
+    for (const mov of movimientos) {
+      const { CIDMOVIMIENTO, CIDDOCUMENTO, CIDALMACEN } = mov;
+
+      // Iniciamos cuando aparece el documento objetivo
+      if (CIDDOCUMENTO === documentoID) {
+        enRango = true;
+      }
+
+      // Si estamos dentro del bloque de traspaso del documento objetivo
+      if (enRango) {
+        if (CIDDOCUMENTO === documentoID || CIDDOCUMENTO === 0) {
+          if (CIDALMACEN === 21) {
+            await pool.request()
+              .input("CIDMOVIMIENTO", sql.Int, CIDMOVIMIENTO)
+              .input("CIDALMACEN", sql.Int, destinoID)
+              .query(`
+                UPDATE admMovimientos
+                SET CIDALMACEN = @CIDALMACEN
+                WHERE CIDMOVIMIENTO = @CIDMOVIMIENTO;
+              `);
+            console.log(`✅ Movimiento ${CIDMOVIMIENTO} actualizado de almacén 21 a ${destinoID}`);
+            actualizados.push(CIDMOVIMIENTO);
+          } else {
+            console.log(`✔️ Movimiento ${CIDMOVIMIENTO} ya tiene almacén correcto (${CIDALMACEN})`);
+          }
+        } else {
+          console.log(`⛔ Se encontró CIDDOCUMENTO diferente (${CIDDOCUMENTO}), fin del bloque.`);
+          break; // Salimos del bucle al detectar otro documento
+        }
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: actualizados.length
+        ? `Se actualizaron ${actualizados.length} movimientos.`
+        : "No se realizaron cambios. Todos los movimientos ya estaban correctos.",
+      actualizados,
+    });
+
   } catch (error) {
-    console.error("❌ Error al actualizar el almacén:", error);
+    console.error("❌ Error al actualizar movimientos:", error);
     return res.status(500).json({
       success: false,
-      message: "Error interno al actualizar el almacén.",
+      message: "Error interno.",
       error: error.message,
     });
   }
