@@ -128,6 +128,7 @@ export default function Dashboard() {
           <>
             <button onClick={() => handleActionRedirect("/SurtirPedido")} className={styles.actionButton}>Surtir Productos</button>
             <button onClick={() => handleActionRedirect("/RecibirPedido")} className={styles.actionButton}>Recibir Productos</button>
+            <button onClick={() => handleActionRedirect("/Reporte_traspasos")} className={styles.actionButton}>Reporte de Traspasos</button>
           </>
         )}
         {(userRole === "Admin" || userRole === "Inventarios") && (

@@ -1,0 +1,471 @@
+/* Estructura principal */
+.panelContainer {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background-color: #f5f7fa;
+  font-family: 'Arial', sans-serif;
+}
+
+.contentContainer {
+  flex: 1;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem;
+  width: 100%;
+}
+
+.panelTitle {
+  color: #003264;
+  font-size: 2rem;
+  margin-bottom: 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* Contenedor de búsqueda */
+.busquedaContainer {
+  background: white;
+  padding: 2rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.inputGroup {
+  margin-bottom: 1.5rem;
+}
+
+.inputGroup label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+  color: #34495e;
+}
+
+.input {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 1rem;
+  transition: all 0.3s ease;
+}
+
+.input:focus {
+  border-color: #3498db;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.2);
+}
+
+/* Botones */
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  background-color: #003264;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.button:hover {
+  background-color: #1a252f;
+  transform: translateY(-2px);
+}
+
+.button:disabled {
+  background-color: #95a5a6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.buttonSecondary {
+  background-color: #ccc;
+  color: #333;
+  border: none;
+  padding: 8px 12px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.buttonSecondary:hover {
+  background-color: #bbb;
+}
+
+/* Botón Registrar Devolución */
+.devolucionButton {
+  background-color: #e74c3c;
+  color: white;
+  border: none;
+  padding: 8px 12px;
+  cursor: pointer;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: bold;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.devolucionButton:hover {
+  background-color: #c0392b;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.devolucionButton:active {
+  background-color: #a93226;
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.devolucionButton:disabled {
+  background-color: #e0e0e0;
+  color: #7f8c8d;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* Sección de pedidos */
+.pedidoContainer {
+  background: white;
+  padding: 2rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+.pedidoHeader {
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #eee;
+}
+
+.pedidoInfo {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.infoLabel {
+  font-weight: 600;
+  color: #003264;
+  margin-right: 0.5rem;
+}
+
+/* Tabla de productos */
+.tableContainer {
+  overflow-x: auto;
+  margin: 1.5rem 0;
+}
+
+.productosTable {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+}
+
+.productosTable th {
+  background-color: #003264;
+  color: white;
+  padding: 0.75rem;
+  text-align: left;
+}
+
+.productosTable td {
+  padding: 0.75rem;
+  border-bottom: 1px solid #eee;
+}
+
+.productosTable tr:last-child td {
+  border-bottom: none;
+}
+
+.productosTable tr:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+.completado {
+  background-color: rgba(46, 204, 113, 0.1);
+}
+
+.pendiente {
+  background-color: rgba(241, 196, 15, 0.1);
+}
+
+.statusSuccess {
+  color: #27ae60;
+  font-weight: 600;
+}
+
+.statusWarning {
+  color: #f39c12;
+  font-weight: 600;
+}
+
+/* Estilos para las filas de la tabla */
+.rowPending {
+  background-color: rgba(255, 165, 0, 0.2);
+}
+
+.rowComplete {
+  background-color: rgba(46, 204, 113, 0.2);
+}
+
+/* Escaneo y autenticación */
+.escaneoContainer {
+  margin-top: 2rem;
+  padding: 1.5rem;
+  background-color: #f8f9fa;
+  border-radius: 6px;
+}
+
+.authContainer {
+  margin-top: 2rem;
+  padding: 2rem;
+  background-color: #f8f9fa;
+  border-radius: 8px;
+  border-left: 4px solid #3498db;
+}
+
+/* Mensajes de error y éxito */
+.errorMessage {
+  color: #e74c3c;
+  background-color: rgba(231, 76, 60, 0.1);
+  padding: 0.75rem;
+  border-radius: 4px;
+  margin: 1rem 0;
+}
+
+.escaneoExitoso {
+  background-color: rgba(46, 204, 113, 0.1);
+  border-left: 4px solid #27ae60;
+  padding: 1rem;
+  border-radius: 4px;
+  margin: 1rem 0;
+  animation: fadeIn 0.3s ease;
+}
+
+.escaneoError {
+  background-color: rgba(231, 76, 60, 0.1);
+  border-left: 4px solid #e74c3c;
+  padding: 1rem;
+  border-radius: 4px;
+  margin: 1rem 0;
+  animation: fadeIn 0.3s ease;
+}
+
+/* Success container */
+.successContainer {
+  text-align: center;
+  padding: 2rem;
+  background-color: rgba(46, 204, 113, 0.1);
+  border-radius: 8px;
+  margin-top: 2rem;
+  border-left: 4px solid #27ae60;
+}
+
+/* ==================== */
+/* MODAL CON SCROLL */
+/* ==================== */
+
+.modalOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 50, 100, 0.7);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  backdrop-filter: blur(5px);
+  animation: fadeIn 0.3s ease-out;
+  padding: 20px;
+}
+
+.modal {
+  width: 90%;
+  max-width: 500px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+  animation: slideUp 0.4s ease-out;
+}
+
+.modalHeader {
+  padding: 1.2rem;
+  background-color: #003264;
+  color: white;
+  flex-shrink: 0;
+}
+
+.modalHeader h3 {
+  margin: 0;
+  font-size: 1.3rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.modalHeader h3::before {
+  content: "↩";
+  font-size: 1.2em;
+}
+
+.modalBody {
+  padding: 1.5rem;
+  overflow-y: auto;
+  flex-grow: 1;
+}
+
+.modalBody p {
+  margin-bottom: 1.5rem;
+  padding: 0.8rem;
+  background-color: #f8f9fa;
+  border-radius: 6px;
+  border-left: 4px solid #e74c3c;
+  font-weight: 500;
+}
+
+.modalBody label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+  color: #34495e;
+  font-size: 0.95rem;
+}
+
+.modalBody input,
+.modalBody textarea,
+.modalBody select {
+  width: 100%;
+  padding: 0.8rem 1rem;
+  margin-bottom: 1.2rem;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  font-size: 1rem;
+  transition: all 0.3s ease;
+}
+
+.modalBody textarea {
+  min-height: 100px;
+  max-height: 200px;
+  resize: vertical;
+}
+
+.modalBody input:focus,
+.modalBody textarea:focus,
+.modalBody select:focus {
+  border-color: #3498db;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.2);
+}
+
+.modalFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+  padding: 1rem 1.5rem;
+  background-color: #f8f9fa;
+  border-top: 1px solid #eee;
+  flex-shrink: 0;
+}
+
+.modalButton {
+  padding: 0.7rem 1.5rem;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border: none;
+  font-size: 0.95rem;
+}
+
+.modalButtonPrimary {
+  background-color: #27ae60;
+  color: white;
+}
+
+.modalButtonPrimary:hover {
+  background-color: #219955;
+  transform: translateY(-2px);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.modalButtonSecondary {
+  background-color: #e74c3c;
+  color: white;
+}
+
+.modalButtonSecondary:hover {
+  background-color: #c0392b;
+  transform: translateY(-2px);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+/* Animaciones */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .contentContainer {
+    padding: 1rem;
+  }
+
+  .panelTitle {
+    font-size: 1.5rem;
+  }
+
+  .pedidoInfo {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .panelTitle {
+    font-size: 1.3rem;
+  }
+
+  .button {
+    width: 100%;
+  }
+
+  .modal {
+    max-height: 85vh;
+  }
+  
+  .modalBody {
+    padding: 1rem;
+  }
+  
+  .modalFooter {
+    flex-direction: column-reverse;
+    gap: 0.5rem;
+  }
+  
+  .modalButton {
+    width: 100%;
+  }
+}
