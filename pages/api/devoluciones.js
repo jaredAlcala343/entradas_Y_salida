@@ -118,8 +118,10 @@ export default async function handler(req, res) {
                     .input('nuevaCantidad', sql.Int, nuevaCantidadCalculada)
                     .query(`
                         UPDATE admMovimientos
-                        SET CUNIDADES = @nuevaCantidad
-                        WHERE CIDMOVIMIENTO = @movimientoId
+                        SET 
+                            CUNIDADES = @nuevaCantidad,
+                            CUNIDADESCAPTURADAS = @nuevaCantidad
+                        WHERE CIDMOVIMIENTO = @movimientoId;
                     `);
             }
 

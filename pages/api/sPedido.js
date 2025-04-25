@@ -19,9 +19,13 @@ export default async function handler(req, res) {
             .request()
             .input('numeroPedido', sql.VarChar, numeroPedido)
             .query(`
-                SELECT p.*, ap.CNOMBREPRODUCTO, ap.CCODIGOPRODUCTO 
+                SELECT p.*, ap.CNOMBREPRODUCTO, ap.CCODIGOPRODUCTO,
+                       ao.CNOMBREALMACEN AS NombreOrigen,
+                       ad.CNOMBREALMACEN AS NombreDestino
                 FROM Pedidos p
                 LEFT JOIN admProductos ap ON p.Producto = ap.CIDPRODUCTO
+                LEFT JOIN admAlmacenes ao ON p.Origen = ao.CCODIGOALMACEN
+                LEFT JOIN admAlmacenes ad ON p.Destino = ad.CCODIGOALMACEN
                 WHERE p.NumeroPedido = @numeroPedido
                 ORDER BY p.Producto
             `);
@@ -31,9 +35,11 @@ export default async function handler(req, res) {
         if (pedidoResult.recordset.length > 0) {
             const primerRegistro = pedidoResult.recordset[0];
             datosBasePedido = {
-                origen: primerRegistro.Origen,
-                destino: primerRegistro.Destino,
-                fechaCreacion: primerRegistro.FechaCreacion || primerRegistro.Fecha_Creacion,
+                origen: primerRegistro.NombreOrigen || primerRegistro.Origen || 'No especificado',
+                destino: primerRegistro.NombreDestino || primerRegistro.Destino || 'No especificado',
+                codigoOrigen: primerRegistro.Origen || 'No especificado',
+                codigoDestino: primerRegistro.Destino || 'No especificado',
+                fechaCreacion: primerRegistro.FechaCreacion || primerRegistro.Fecha_Creacion || 'No especificada',
                 estatus: primerRegistro.Estatus || 'Activo'
             };
         }
@@ -75,8 +81,8 @@ export default async function handler(req, res) {
                             .input('numeroPedido', sql.VarChar, numeroPedido)
                             .input('productoId', sql.Int, movimiento.CIDPRODUCTO)
                             .input('unidades', sql.Int, movimiento.TotalUnidades)
-                            .input('origen', sql.Int, datosBasePedido.origen)
-                            .input('destino', sql.Int, datosBasePedido.destino)
+                            .input('origen', sql.Int, datosBasePedido.codigoOrigen)
+                            .input('destino', sql.Int, datosBasePedido.codigoDestino)
                             .input('estatus', sql.VarChar, datosBasePedido.estatus)
                             .query(`
                                 INSERT INTO Pedidos (
@@ -117,8 +123,8 @@ export default async function handler(req, res) {
                                 .input('numeroPedido', sql.VarChar, numeroPedido)
                                 .input('productoId', sql.Int, movimiento.CIDPRODUCTO)
                                 .input('unidades', sql.Int, movimiento.TotalUnidades)
-                                .input('origen', sql.Int, datosBasePedido.origen)
-                                .input('destino', sql.Int, datosBasePedido.destino)
+                                .input('origen', sql.Int, datosBasePedido.codigoOrigen)
+                                .input('destino', sql.Int, datosBasePedido.codigoDestino)
                                 .input('estatus', sql.VarChar, datosBasePedido.estatus)
                                 .query(`
                                     INSERT INTO Pedidos (
@@ -241,14 +247,18 @@ export default async function handler(req, res) {
             }
         }
 
-        // 5. Obtener datos finales actualizados
+        // 5. Obtener datos finales actualizados con nombres de almacenes
         const [pedidoFinal, productosRelacionados] = await Promise.all([
             pool.request()
                 .input('numeroPedido', sql.VarChar, numeroPedido)
                 .query(`
-                    SELECT p.*, ap.CNOMBREPRODUCTO, ap.CCODIGOPRODUCTO
+                    SELECT p.*, ap.CNOMBREPRODUCTO, ap.CCODIGOPRODUCTO,
+                           ao.CNOMBREALMACEN AS NombreOrigen,
+                           ad.CNOMBREALMACEN AS NombreDestino
                     FROM Pedidos p
                     LEFT JOIN admProductos ap ON p.Producto = ap.CIDPRODUCTO
+                    LEFT JOIN admAlmacenes ao ON p.Origen = ao.CCODIGOALMACEN
+                    LEFT JOIN admAlmacenes ad ON p.Destino = ad.CCODIGOALMACEN
                     WHERE p.NumeroPedido = @numeroPedido
                     ORDER BY p.Producto
                 `),
@@ -269,8 +279,22 @@ export default async function handler(req, res) {
                 `)
         ]);
 
+        // Actualizar datosBasePedido con los nombres de los almacenes si hay registros
+        if (pedidoFinal.recordset.length > 0) {
+            const primerRegistro = pedidoFinal.recordset[0];
+            datosBasePedido = {
+                origen: primerRegistro.NombreOrigen || primerRegistro.Origen || 'No especificado',
+                destino: primerRegistro.NombreDestino || primerRegistro.Destino || 'No especificado',
+                codigoOrigen: primerRegistro.Origen || 'No especificado',
+                codigoDestino: primerRegistro.Destino || 'No especificado',
+                fechaCreacion: primerRegistro.FechaCreacion || primerRegistro.Fecha_Creacion || 'No especificada',
+                estatus: primerRegistro.Estatus || 'Activo'
+            };
+        }
+
+        // Respuesta final al cliente
         res.status(200).json({
-            pedido: pedidoFinal.recordset,
+            pedido: datosBasePedido, // Ahora incluye nombres de almacenes en origen y destino
             productosRelacionados: productosRelacionados.recordset,
             operacionesRealizadas: operaciones,
             totalCambios: cambiosRealizados,

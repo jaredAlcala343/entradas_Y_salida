@@ -1,8 +1,10 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { PDFDocument, rgb } from "pdf-lib";
 import JsBarcode from "jsbarcode";
 import styles from "./SurtirPedido.module.css";
 import Navbar from "./navbar";
+import { jsPDF } from "jspdf";
+import "jspdf-autotable";
 
 const PanelSurtir = () => {
   const [codigoPedido, setCodigoPedido] = useState("");
@@ -17,6 +19,22 @@ const PanelSurtir = () => {
   const [mensajeError, setMensajeError] = useState("");
   const [productoActual, setProductoActual] = useState(null);
   const [escaneosRestantes, setEscaneosRestantes] = useState(0);
+  
+  // Refs para manejar el foco de los inputs
+  const inputPedidoRef = useRef(null);
+  const inputProductoRef = useRef(null);
+  const inputUsuarioRef = useRef(null);
+
+  // Enfocar el input correspondiente según el estado
+  useEffect(() => {
+    if (!pedidoInfo && inputPedidoRef.current) {
+      inputPedidoRef.current.focus();
+    } else if (productoActual && !autenticacionPendiente && inputProductoRef.current) {
+      inputProductoRef.current.focus();
+    } else if (autenticacionPendiente && inputUsuarioRef.current) {
+      inputUsuarioRef.current.focus();
+    }
+  }, [pedidoInfo, productoActual, autenticacionPendiente]);
 
   // Buscar pedido en la base de datos
   const buscarPedido = async () => {
@@ -41,12 +59,12 @@ const PanelSurtir = () => {
 
       setPedidoInfo({
         codigo: codigoPedido,
-        pedido: data.pedido,
+        pedido: data.pedido, // Incluye origen y destino
         productos: data.productosRelacionados
       });
-      
+
       setProductosEscaneados(conteoInicial);
-      
+
       // Establecer el primer producto como actual
       if (data.productosRelacionados.length > 0) {
         setProductoActual(data.productosRelacionados[0]);
@@ -90,27 +108,14 @@ const PanelSurtir = () => {
     }
 
     try {
-      // Verificación en el servidor - Modo debug
-      console.log("Verificando producto:", {
-        numeroPedido: codigoPedido,
-        codigoProducto: codigoProducto
-      });
-
       const response = await fetch(
         `/api/verificarProducto?numeroPedido=${codigoPedido}&codigoProducto=${codigoProducto}`
       );
       
       const data = await response.json();
-      console.log("Respuesta del servidor:", data);
 
       if (!response.ok) {
         throw new Error(data.message || "Error en la respuesta del servidor");
-      }
-
-      // Si el servidor reporta que no existe pero localmente sí está
-      if (!data.existe) {
-        console.warn("El servidor no reconoce el producto, pero está en la lista local. Continuando...");
-        // Continuamos con el proceso a pesar del error del servidor
       }
 
       // Actualizar conteo
@@ -154,7 +159,6 @@ const PanelSurtir = () => {
       }
     } catch (error) {
       console.error("Error en verificación:", error);
-      // Continuamos con la verificación local si falla la del servidor
       alert("⚠️ Error de conexión, usando verificación local");
       
       // Actualizar conteo a pesar del error
@@ -225,73 +229,66 @@ const PanelSurtir = () => {
   const generarPDFDetallesPedido = async (numeroPedido, pedidoInfo) => {
     try {
       if (!pedidoInfo || !pedidoInfo.productos) {
-        throw new Error("TraspasoInfo o productos no están definidos");
+        throw new Error("Información del pedido o productos no está definida");
       }
 
-      const pdfDoc = await PDFDocument.create();
-      let page = pdfDoc.addPage([600, 800]);
+      const doc = new jsPDF();
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
 
-      // Generar código de barras para el número de pedido
-      const canvasPedido = document.createElement("canvas");
-      JsBarcode(canvasPedido, numeroPedido, {
-        format: "CODE128",
-        displayValue: true,
-        fontSize: 16,
-        textMargin: 8,
+      // Encabezado
+      doc.setFontSize(18);
+      doc.setTextColor(40);
+      doc.text('Comprobante de Surtido', pageWidth / 2, 20, { align: 'center' });
+
+      doc.setFontSize(12);
+      doc.text(`Número de Traspaso: ${numeroPedido}`, 20, 40);
+      doc.text(`Origen: ${pedidoInfo.pedido.origen || "No especificado"}`, 20, 50);
+      doc.text(`Destino: ${pedidoInfo.pedido.destino || "No especificado"}`, 20, 60);
+      doc.text(`Fecha: ${new Date().toLocaleString()}`, 20, 70);
+
+      // Tabla de productos
+      const productos = pedidoInfo.productos.map((producto, index) => [
+        index + 1,
+        producto.CNOMBREPRODUCTO,
+        producto.CUNIDADES,
+        productosEscaneados[producto.CCODIGOPRODUCTO] || 0,
+        producto.CCODIGOPRODUCTO,
+      ]);
+
+      doc.autoTable({
+        head: [['#', 'Producto', 'Solicitado', 'Escaneado', 'Código']],
+        body: productos,
+        startY: 90,
+        theme: 'grid',
+        styles: {
+          fontSize: 10,
+          halign: 'center',
+          valign: 'middle',
+        },
+        headStyles: {
+          fillColor: [0, 123, 255],
+          textColor: 255,
+          fontSize: 12,
+        },
       });
 
-      // Convertir el código de barras a imagen
-      const barcodeImage = canvasPedido.toDataURL("image/png");
-      const barcodeEmbed = await pdfDoc.embedPng(barcodeImage);
+      // Espacio para firma
+      const finalY = doc.autoTable.previous.finalY + 20;
+      doc.setFontSize(12);
+      doc.text('Firma del Empleado que Surtió:', 20, finalY);
+      doc.line(20, finalY + 5, pageWidth - 20, finalY + 5); // Línea para la firma
 
-      // Agregar título y código de barras al PDF
-      page.drawText("Detalles del Traspaso", { x: 50, y: 750, size: 18, color: rgb(0, 0, 0) });
-      page.drawText(`Número de Traspaso: ${numeroPedido}`, { x: 50, y: 720, size: 10 });
-      page.drawText(`Origen: ${pedidoInfo.pedido.Origen}`, { x: 50, y: 690, size: 10 });
-      page.drawText(`Destino: ${pedidoInfo.pedido.Destino}`, { x: 50, y: 660, size: 10 });
-
-      // Insertar código de barras
-      page.drawImage(barcodeEmbed, {
-        x: 370,
-        y: 700,
-        width: 200,
-        height: 50,
-      });
-
-      let currentY = 600;
-      const lineHeight = 20;
-
-      // Encabezados de tabla
-      page.drawRectangle({ x: 40, y: currentY, width: 520, height: 20, color: rgb(0.8, 0.8, 0.8) });
-      page.drawText("Código", { x: 50, y: currentY + 5, size: 10 });
-      page.drawText("Descripción", { x: 150, y: currentY + 5, size: 10 });
-      page.drawText("Cantidad", { x: 500, y: currentY + 5, size: 10 });
-
-      currentY -= lineHeight;
-      let totalProductos = 0;
-
-      // Productos
-      for (const prod of pedidoInfo.productos) {
-        totalProductos += parseInt(prod.CUNIDADES, 10);
-
-        page.drawRectangle({ x: 40, y: currentY - 5, width: 520, height: 20, color: rgb(0.95, 0.95, 0.95) });
-        page.drawText(prod.CCODIGOPRODUCTO, { x: 50, y: currentY, size: 10 });
-        page.drawText(prod.CNOMBREPRODUCTO, { x: 150, y: currentY, size: 10 });
-        page.drawText(`${prod.CUNIDADES}`, { x: 520, y: currentY, size: 10 });
-
-        currentY -= lineHeight;
+      // Pie de página
+      const pageCount = doc.internal.getNumberOfPages();
+      for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.setFontSize(10);
+        doc.text(`Página ${i} de ${pageCount}`, pageWidth / 2, pageHeight - 10, { align: 'center' });
+        doc.text('Traspasos Cubylam - Todos los derechos reservados', pageWidth / 2, pageHeight - 5, { align: 'center' });
       }
 
-      currentY -= lineHeight;
-      page.drawText(`Total Productos: ${totalProductos}`, { x: 50, y: currentY, size: 12 });
-
-      // Guardar y descargar PDF
-      const pdfBytes = await pdfDoc.save();
-      const blob = new Blob([pdfBytes], { type: "application/pdf" });
-      const link = document.createElement("a");
-      link.href = URL.createObjectURL(blob);
-      link.download = `Detalles_Traspaso_${numeroPedido}.pdf`;
-      link.click();
+      doc.save(`Comprobante_Surtido_${numeroPedido}.pdf`);
     } catch (error) {
       console.error("Error al generar PDF:", error);
     }
@@ -299,62 +296,65 @@ const PanelSurtir = () => {
 
   const generarPDFCodigosBarras = async (numeroPedido, pedidoInfo) => {
     try {
-      if (!pedidoInfo || !pedidoInfo.productos) {
-        throw new Error("No hay información de productos");
-      }
-
-      const pdfDoc = await PDFDocument.create();
-      let page = pdfDoc.addPage([600, 800]);
-
-      let yPos = 700;
-      const barWidth = 300;
-      const barHeight = 80;
-      const spaceY = 150;
-
-      page.drawText(`Códigos de Barras - Traspaso ${numeroPedido}`, { 
-        x: 50, y: 750, size: 16, color: rgb(0, 0, 0) 
-      });
-
-      for (const prod of pedidoInfo.productos) {
-        const codigoBarras = `${prod.CCODIGOPRODUCTO}-${prod.CUNIDADES}`;
-
-        const canvas = document.createElement("canvas");
-        JsBarcode(canvas, codigoBarras, {
-          format: "CODE128",
-          displayValue: true,
-          fontSize: 16,
-          textMargin: 8,
-        });
-
-        const barcodeImage = canvas.toDataURL("image/png");
-        const barcodeEmbed = await pdfDoc.embedPng(barcodeImage);
-
-        page.drawText(`Producto: ${prod.CNOMBREPRODUCTO}`, { x: 50, y: yPos + 40, size: 12 });
-        page.drawText(`Código: ${codigoBarras}`, { x: 50, y: yPos + 20, size: 12 });
-
-        page.drawImage(barcodeEmbed, {
-          x: 150,
-          y: yPos - 40,
-          width: barWidth,
-          height: barHeight,
-        });
-
-        yPos -= spaceY;
-
-        if (yPos < 100) {
-          page = pdfDoc.addPage([600, 800]);
-          yPos = 700;
+        if (!pedidoInfo || !pedidoInfo.productos) {
+            throw new Error("No hay información de productos");
         }
-      }
 
-      const pdfBytes = await pdfDoc.save();
-      const blob = new Blob([pdfBytes], { type: "application/pdf" });
-      const link = document.createElement("a");
-      link.href = URL.createObjectURL(blob);
-      link.download = `Codigos_Barras_Traspaso_${numeroPedido}.pdf`;
-      link.click();
+        const doc = new jsPDF();
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+
+        let xPos = 20; // Margen izquierdo
+        let yPos = 40; // Margen superior
+        const labelWidth = 100; // Ancho de cada etiqueta
+        const labelHeight = 60; // Altura de cada etiqueta
+        const spaceBetweenLabels = 10; // Espacio entre etiquetas
+
+        // Encabezado del PDF
+        doc.setFontSize(16);
+        doc.text('Códigos de Barras - Traspaso', pageWidth / 2, 20, { align: 'center' });
+        doc.setFontSize(12);
+        doc.text(`Número de Traspaso: ${numeroPedido}`, 20, 30);
+
+        // Generar un código de barras por producto
+        pedidoInfo.productos.forEach((producto) => {
+            const codigoCombinado = `${producto.CCODIGOPRODUCTO}-${producto.CUNIDADES}`; // Código combinado
+
+            // Crear el código de barras
+            const canvas = document.createElement('canvas');
+            JsBarcode(canvas, codigoCombinado, {
+                format: 'CODE128',
+                displayValue: true,
+                fontSize: 10,
+            });
+            const imgData = canvas.toDataURL('image/png');
+
+            // Dibujar la etiqueta
+            doc.rect(xPos, yPos, labelWidth, labelHeight); // Borde de la etiqueta
+            doc.addImage(imgData, 'PNG', xPos + 5, yPos + 5, labelWidth - 10, 30); // Código de barras
+            doc.text(producto.CNOMBREPRODUCTO, xPos + labelWidth / 2, yPos + 45, { align: 'center' }); // Nombre del producto
+            doc.text(codigoCombinado, xPos + labelWidth / 2, yPos + 55, { align: 'center' }); // Código combinado
+
+            // Ajustar posición para la siguiente etiqueta
+            xPos += labelWidth + spaceBetweenLabels;
+
+            // Si no hay espacio horizontal, mover a la siguiente fila
+            if (xPos + labelWidth > pageWidth - 20) {
+                xPos = 20; // Reiniciar posición horizontal
+                yPos += labelHeight + spaceBetweenLabels;
+
+                // Si no hay espacio vertical, agregar una nueva página
+                if (yPos + labelHeight > pageHeight - 20) {
+                    doc.addPage();
+                    yPos = 40; // Reiniciar posición vertical
+                }
+            }
+        });
+
+        // Guardar el PDF
+        doc.save(`Codigos_Barras_Traspaso_${numeroPedido}.pdf`);
     } catch (error) {
-      console.error("Error al generar PDF de códigos:", error);
+        console.error("Error al generar PDF de códigos:", error);
     }
   };
 
@@ -384,113 +384,126 @@ const PanelSurtir = () => {
   };
 
   return (
-    <div>
+    <div className={styles.container}>
       <Navbar />
       <div className={styles.panelContainer}>
         <h3 className={styles.panelTitle}>Panel de Surtir Traspaso</h3>
 
         {!pedidoInfo ? (
-          <div>
-            <h4>Ingresa o Escanea el Código del Traspaso</h4>
-            <input
-              className={styles.input}
-              type="text"
-              placeholder="Código de Traspaso"
-              value={codigoPedido}
-              onChange={(e) => setCodigoPedido(e.target.value)}
-              onKeyDown={handleCodigoPedidoKeyDown}
-            />
-            <button className={styles.button} onClick={buscarPedido} disabled={loading}>
+          <div className={styles.searchContainer}>
+            <h4 className={styles.subtitle}>Ingresa o Escanea el Código del Traspaso</h4>
+            <div className={styles.inputContainer}>
+              <input
+                ref={inputPedidoRef}
+                className={styles.inputLarge}
+                type="text"
+                placeholder="Código de Traspaso"
+                value={codigoPedido}
+                onChange={(e) => setCodigoPedido(e.target.value)}
+                onKeyDown={handleCodigoPedidoKeyDown}
+                autoFocus
+              />
+            </div>
+            <button className={styles.primaryButton} onClick={buscarPedido} disabled={loading}>
               {loading ? "Buscando..." : "Buscar Traspaso"}
             </button>
           </div>
         ) : (
-          <div>
-            <h4 className={styles.panelTitle}>Traspaso: {pedidoInfo.codigo}</h4>
-            <div className={styles.pedidoInfo}>
-              <p><strong>Origen:</strong> {pedidoInfo.pedido.Origen}</p>
-              <p><strong>Destino:</strong> {pedidoInfo.pedido.Destino}</p>
+          <div className={styles.pedidoContainer}>
+            <div className={styles.header}>
+              <h4 className={styles.pedidoTitle}>Traspaso: {pedidoInfo.codigo}</h4>
+              <div className={styles.pedidoInfo}>
+                <p><strong>Origen:</strong> {pedidoInfo.pedido.origen || "No especificado"}</p>
+                <p><strong>Destino:</strong> {pedidoInfo.pedido.destino || "No especificado"}</p>
+              </div>
             </div>
             
             {productoActual && (
-              <div className={styles.productoActual}>
-                <h4>Producto actual:</h4>
-                <p><strong>Nombre:</strong> {productoActual.CNOMBREPRODUCTO}</p>
-                <p><strong>Código:</strong> {productoActual.CCODIGOPRODUCTO}</p>
-                <p><strong>Escaneados:</strong> {productosEscaneados[productoActual.CCODIGOPRODUCTO] || 0} de {productoActual.CUNIDADES}</p>
+              <div className={styles.productoActualContainer}>
+                <h4 className={styles.productoActualTitle}>Producto actual</h4>
+                <div className={styles.productoActualInfo}>
+                  <p><strong>Nombre:</strong> {productoActual.CNOMBREPRODUCTO}</p>
+                  <p><strong>Código:</strong> {productoActual.CCODIGOPRODUCTO}</p>
+                  <p className={styles.escaneosInfo}>
+                    <strong>Escaneados:</strong> 
+                    <span className={styles.escaneosCount}>
+                      {productosEscaneados[productoActual.CCODIGOPRODUCTO] || 0} / {productoActual.CUNIDADES}
+                    </span>
+                  </p>
+                </div>
               </div>
             )}
             
-            <div className={styles.columnsContainer}>
-              <div className={styles.column}>
-                <h3>Productos</h3>
-                <ul>
-                  {pedidoInfo.productos.map((producto, index) => (
-                    <li 
-                      key={index} 
-                      className={producto.CCODIGOPRODUCTO === productoActual?.CCODIGOPRODUCTO ? styles.productoActualLi : ''}
-                    >
-                      {producto.CNOMBREPRODUCTO}
-                    </li>
-                  ))}
-                </ul>
+            <div className={styles.productosContainer}>
+              <div className={styles.tableHeader}>
+                <div className={styles.tableColumn}><h3>Productos</h3></div>
+                <div className={styles.tableColumn}><h3>Cantidad</h3></div>
+                <div className={styles.tableColumn}><h3>Escaneados</h3></div>
               </div>
-              <div className={styles.column}>
-                <h3>Cantidad</h3>
-                <ul>
-                  {pedidoInfo.productos.map((producto, index) => (
-                    <li key={index}>{producto.CUNIDADES}</li>
-                  ))}
-                </ul>
-              </div>
-              <div className={styles.column}>
-                <h3>Escaneados</h3>
-                <ul>
-                  {pedidoInfo.productos.map((producto, index) => (
-                    <li key={index}>
-                      {productosEscaneados[producto.CCODIGOPRODUCTO] || 0}
-                    </li>
-                  ))}
-                </ul>
+              
+              <div className={styles.tableBody}>
+                {pedidoInfo.productos.map((producto, index) => (
+                  <div 
+                    key={index} 
+                    className={`${styles.tableRow} ${
+                      producto.CCODIGOPRODUCTO === productoActual?.CCODIGOPRODUCTO ? styles.activeRow : ''
+                    }`}
+                  >
+                    <div className={styles.tableColumn}>{producto.CNOMBREPRODUCTO}</div>
+                    <div className={styles.tableColumn}>{producto.CUNIDADES}</div>
+                    <div className={styles.tableColumn}>
+                      <span className={
+                        (productosEscaneados[producto.CCODIGOPRODUCTO] || 0) >= producto.CUNIDADES 
+                          ? styles.completed 
+                          : styles.pending
+                      }>
+                        {productosEscaneados[producto.CCODIGOPRODUCTO] || 0}
+                      </span>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
 
             {!pedidoSurtido && !autenticacionPendiente && (
-              <div className={styles.escaneoContainer}>
-                <h5>Escanea el producto actual:</h5>
-                <input
-                  className={styles.input}
-                  type="text"
-                  placeholder={`Ingrese código: ${productoActual?.CCODIGOPRODUCTO || ''}`}
-                  value={codigoManual}
-                  onChange={(e) => setCodigoManual(e.target.value)}
-                  onKeyDown={handleCodigoManual}
-                  autoFocus
-                />
+              <div className={styles.scanContainer}>
+                <h5 className={styles.scanTitle}>Escanea el producto actual:</h5>
+                <div className={styles.inputContainer}>
+                    <input
+                        ref={inputProductoRef}
+                        className={styles.inputLarge}
+                        type="text"
+                        placeholder={`Ingrese código: ${productoActual?.CCODIGOPRODUCTO || ''}`}
+                        value={codigoManual}
+                        onChange={(e) => setCodigoManual(e.target.value)}
+                        onKeyDown={handleCodigoManual}
+                    />
+                </div>
+                <p className={styles.scanHint}>Presiona Enter para confirmar el escaneo</p>
               </div>
             )}
 
             {autenticacionPendiente && (
               <div className={styles.authContainer}>
-                <h4>Confirmación de Traspaso</h4>
-                <p>Ingrese sus credenciales para finalizar el proceso</p>
+                <h4 className={styles.authTitle}>Confirmación de Traspaso</h4>
+                <p className={styles.authSubtitle}>Ingrese sus credenciales para finalizar el proceso</p>
                 
-                <div className={styles.inputGroup}>
-                  <label>Usuario:</label>
+                <div className={styles.formGroup}>
+                  <label className={styles.formLabel}>Usuario:</label>
                   <input
-                    className={styles.input}
+                    ref={inputUsuarioRef}
+                    className={styles.formInput}
                     type="text"
                     placeholder="Usuario"
                     value={usuario}
                     onChange={(e) => setUsuario(e.target.value)}
-                    autoFocus
                   />
                 </div>
                 
-                <div className={styles.inputGroup}>
-                  <label>Contraseña:</label>
+                <div className={styles.formGroup}>
+                  <label className={styles.formLabel}>Contraseña:</label>
                   <input
-                    className={styles.input}
+                    className={styles.formInput}
                     type="password"
                     placeholder="Contraseña"
                     value={password}
@@ -501,7 +514,7 @@ const PanelSurtir = () => {
                 {mensajeError && <p className={styles.errorMessage}>{mensajeError}</p>}
                 
                 <button 
-                  className={styles.button} 
+                  className={styles.primaryButton} 
                   onClick={validarYConfirmarSurtido} 
                   disabled={loading}
                 >
