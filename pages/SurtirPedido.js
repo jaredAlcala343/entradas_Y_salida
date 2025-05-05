@@ -6,6 +6,95 @@ import Navbar from "./navbar";
 import { jsPDF } from "jspdf";
 import "jspdf-autotable";
 
+const procesarProducto = (producto) => {
+  // Caso especial para productos con características (ej: "null, Autum Indian Slate")
+  if (producto.nombre_producto && producto.nombre_producto.startsWith("null,")) {
+    const caracteristicas = producto.nombre_producto.split(",")
+      .slice(1) // Eliminamos el "null" inicial
+      .map(c => c.trim())
+      .filter(c => c && c.toLowerCase() !== "null");
+    
+    if (caracteristicas.length === 0) return []; // No hay características válidas
+    
+    // Calculamos unidades por variante (distribución equitativa)
+    const unidadesPorVariante = Math.ceil(producto.Unidades / caracteristicas.length);
+    
+    return caracteristicas.map(caracteristica => ({
+      ...producto,
+      nombreBase: "Cubierta Cubytop Antiderrame Lisa",
+      caracteristicas: [caracteristica],
+      nombreCompleto: `Cubierta Cubytop Antiderrame Lisa, ${caracteristica}`,
+      CCODIGOPRODUCTO: "CUANL",
+      codigoVariante: `${producto.Producto}-${caracteristica.replace(/\s+/g, '-')}`,
+      Unidades: unidadesPorVariante,
+      valido: true
+    }));
+  }
+
+  // Productos normales
+  const nombreProducto = producto.CNOMBREPRODUCTO || producto.nombre_producto || "";
+  const partes = nombreProducto.split(",")
+    .map(p => p.trim())
+    .filter(p => p && p.toLowerCase() !== "null");
+
+  if (partes.length === 0) return []; // No hay nombre válido
+
+  const nombreBase = partes[0];
+  const caracteristicas = partes.slice(1);
+
+  // Si es el producto que queremos excluir, solo mostramos variantes con características
+  if (nombreBase === "Cubierta Cubytop Antiderrame Lisa") {
+    if (caracteristicas.length === 0) return []; // Excluimos el base
+    
+    const unidadesPorVariante = Math.ceil(producto.Unidades / caracteristicas.length);
+    
+    return caracteristicas.map(caracteristica => ({
+      ...producto,
+      nombreBase,
+      caracteristicas: [caracteristica],
+      nombreCompleto: `${nombreBase}, ${caracteristica}`,
+      CCODIGOPRODUCTO: producto.CCODIGOPRODUCTO || "CODIGO_NO_DISPONIBLE",
+      codigoVariante: `${producto.Producto}-${caracteristica.replace(/\s+/g, '-')}`,
+      Unidades: unidadesPorVariante,
+      valido: true
+    }));
+  }
+
+  // Para otros productos, mostramos base + características si existen
+  if (caracteristicas.length > 0) {
+    return [
+      {
+        ...producto,
+        nombreBase,
+        caracteristicas: [],
+        nombreCompleto: nombreBase,
+        codigoVariante: producto.Producto,
+        valido: true
+      },
+      ...caracteristicas.map(caracteristica => ({
+        ...producto,
+        nombreBase,
+        caracteristicas: [caracteristica],
+        nombreCompleto: `${nombreBase}, ${caracteristica}`,
+        CCODIGOPRODUCTO: producto.CCODIGOPRODUCTO || "CODIGO_NO_DISPONIBLE",
+        codigoVariante: `${producto.Producto}-${caracteristica.replace(/\s+/g, '-')}`,
+        Unidades: producto.Unidades, // Mismas unidades para cada variante
+        valido: true
+      }))
+    ];
+  }
+
+  // Producto normal sin características
+  return [{
+    ...producto,
+    nombreBase,
+    caracteristicas: [],
+    nombreCompleto: nombreBase,
+    codigoVariante: producto.Producto,
+    valido: true
+  }];
+};
+
 const PanelSurtir = () => {
   const [codigoPedido, setCodigoPedido] = useState("");
   const [pedidoInfo, setPedidoInfo] = useState(null);
@@ -19,13 +108,11 @@ const PanelSurtir = () => {
   const [mensajeError, setMensajeError] = useState("");
   const [productoActual, setProductoActual] = useState(null);
   const [escaneosRestantes, setEscaneosRestantes] = useState(0);
-  
-  // Refs para manejar el foco de los inputs
+
   const inputPedidoRef = useRef(null);
   const inputProductoRef = useRef(null);
   const inputUsuarioRef = useRef(null);
 
-  // Enfocar el input correspondiente según el estado
   useEffect(() => {
     if (!pedidoInfo && inputPedidoRef.current) {
       inputPedidoRef.current.focus();
@@ -36,7 +123,19 @@ const PanelSurtir = () => {
     }
   }, [pedidoInfo, productoActual, autenticacionPendiente]);
 
-  // Buscar pedido en la base de datos
+  const handleCodigoPedidoKeyDown = (e) => {
+    if (e.key === "Enter") {
+      buscarPedido();
+    }
+  };
+
+  const handleCodigoManual = (e) => {
+    if (e.key === "Enter" && !autenticacionPendiente) {
+      verificarProducto(codigoManual.trim());
+      setCodigoManual("");
+    }
+  };
+
   const buscarPedido = async () => {
     if (!codigoPedido.trim()) {
       alert("⚠️ Ingresa un código de Traspaso válido.");
@@ -51,26 +150,31 @@ const PanelSurtir = () => {
 
       if (!response.ok) throw new Error(data.message || "Error al buscar el Traspaso");
 
-      // Inicializar estado de productos
+      // Procesar productos y aplanar el array
+      const productosProcesados = data.productosPedido
+        .map(procesarProducto)
+        .flat()
+        .filter(p => p.valido); // Filtramos solo productos válidos
+
+      if (productosProcesados.length === 0) {
+        throw new Error("No se encontraron productos válidos en el traspaso");
+      }
+
+      // Inicializar conteo de escaneos
       const conteoInicial = {};
-      data.productosRelacionados.forEach(p => {
-        conteoInicial[p.CCODIGOPRODUCTO] = 0;
+      productosProcesados.forEach((p) => {
+        conteoInicial[p.codigoVariante] = 0;
       });
 
       setPedidoInfo({
         codigo: codigoPedido,
-        pedido: data.pedido, // Incluye origen y destino
-        productos: data.productosRelacionados
+        pedido: data.pedido,
+        productos: productosProcesados
       });
 
       setProductosEscaneados(conteoInicial);
-
-      // Establecer el primer producto como actual
-      if (data.productosRelacionados.length > 0) {
-        setProductoActual(data.productosRelacionados[0]);
-        setEscaneosRestantes(data.productosRelacionados[0].CUNIDADES);
-      }
-
+      setProductoActual(productosProcesados[0]);
+      setEscaneosRestantes(productosProcesados[0].Unidades);
       setAutenticacionPendiente(false);
     } catch (error) {
       alert(error.message);
@@ -79,26 +183,13 @@ const PanelSurtir = () => {
     }
   };
 
-  // Verificar producto en la base de datos y actualizar conteo
   const verificarProducto = async (codigoProducto) => {
     if (!pedidoInfo || !productoActual || autenticacionPendiente) return;
-    
-    // Limpiar código de posibles espacios
+
     codigoProducto = codigoProducto.trim();
 
-    // Verificación local primero
-    const productoEnPedido = pedidoInfo.productos.find(
-      p => p.CCODIGOPRODUCTO === codigoProducto
-    );
-
-    if (!productoEnPedido) {
-      alert(`⚠️ El producto ${codigoProducto} no está en este traspaso`);
-      return;
-    }
-
-    // Verificar si es el producto actual
     if (codigoProducto !== productoActual.CCODIGOPRODUCTO) {
-      alert(`⚠️ Debes escanear primero: ${productoActual.CNOMBREPRODUCTO} (${productoActual.CCODIGOPRODUCTO})`);
+      alert(`⚠️ Debes escanear el código: ${productoActual.CCODIGOPRODUCTO} para ${productoActual.nombreCompleto}`);
       return;
     }
 
@@ -111,7 +202,6 @@ const PanelSurtir = () => {
       const response = await fetch(
         `/api/verificarProducto?numeroPedido=${codigoPedido}&codigoProducto=${codigoProducto}`
       );
-      
       const data = await response.json();
 
       if (!response.ok) {
@@ -121,36 +211,35 @@ const PanelSurtir = () => {
       // Actualizar conteo
       const nuevosEscaneos = {
         ...productosEscaneados,
-        [codigoProducto]: (productosEscaneados[codigoProducto] || 0) + 1
+        [productoActual.codigoVariante]: (productosEscaneados[productoActual.codigoVariante] || 0) + 1,
       };
-      
-      setProductosEscaneados(nuevosEscaneos);
-      setEscaneosRestantes(prev => prev - 1);
 
-      // Verificar si completamos este producto
-      if (nuevosEscaneos[codigoProducto] >= productoActual.CUNIDADES) {
-        alert(`✅ Completado: ${productoActual.CNOMBREPRODUCTO}`);
-        
+      setProductosEscaneados(nuevosEscaneos);
+      setEscaneosRestantes((prev) => prev - 1);
+
+      // Verificar si se completó este producto
+      if (nuevosEscaneos[productoActual.codigoVariante] >= productoActual.Unidades) {
+        alert(`✅ Completado: ${productoActual.nombreCompleto}`);
+
         // Buscar siguiente producto pendiente
         const indexActual = pedidoInfo.productos.findIndex(
-          p => p.CCODIGOPRODUCTO === productoActual.CCODIGOPRODUCTO
+          (p) => p.codigoVariante === productoActual.codigoVariante
         );
-        
-        const siguienteProducto = pedidoInfo.productos.slice(indexActual + 1).find(p => {
-          const escaneados = nuevosEscaneos[p.CCODIGOPRODUCTO] || 0;
-          return escaneados < p.CUNIDADES;
+
+        const siguienteProducto = pedidoInfo.productos.slice(indexActual + 1).find((p) => {
+          return (nuevosEscaneos[p.codigoVariante] || 0) < p.Unidades;
         });
 
         if (siguienteProducto) {
           setProductoActual(siguienteProducto);
           setEscaneosRestantes(
-            siguienteProducto.CUNIDADES - (nuevosEscaneos[siguienteProducto.CCODIGOPRODUCTO] || 0)
+            siguienteProducto.Unidades - (nuevosEscaneos[siguienteProducto.codigoVariante] || 0)
           );
         } else {
-          const todosCompletados = pedidoInfo.productos.every(
-            p => (nuevosEscaneos[p.CCODIGOPRODUCTO] || 0) >= p.CUNIDADES
-          );
-          
+          const todosCompletados = pedidoInfo.productos.every((p) => {
+            return (nuevosEscaneos[p.codigoVariante] || 0) >= p.Unidades;
+          });
+
           if (todosCompletados) {
             alert("✅ Todos los productos han sido escaneados correctamente");
             setAutenticacionPendiente(true);
@@ -160,28 +249,15 @@ const PanelSurtir = () => {
     } catch (error) {
       console.error("Error en verificación:", error);
       alert("⚠️ Error de conexión, usando verificación local");
-      
+
       // Actualizar conteo a pesar del error
       const nuevosEscaneos = {
         ...productosEscaneados,
-        [codigoProducto]: (productosEscaneados[codigoProducto] || 0) + 1
+        [productoActual.codigoVariante]: (productosEscaneados[productoActual.codigoVariante] || 0) + 1,
       };
-      
+
       setProductosEscaneados(nuevosEscaneos);
-      setEscaneosRestantes(prev => prev - 1);
-    }
-  };
-
-  const handleCodigoManual = (e) => {
-    if (e.key === "Enter" && !autenticacionPendiente) {
-      verificarProducto(codigoManual.trim());
-      setCodigoManual("");
-    }
-  };
-
-  const handleCodigoPedidoKeyDown = (e) => {
-    if (e.key === "Enter") {
-      buscarPedido();
+      setEscaneosRestantes((prev) => prev - 1);
     }
   };
 
@@ -193,7 +269,7 @@ const PanelSurtir = () => {
 
     try {
       const res = await fetch(`/api/data?type=validarUsuario&usuario=${usuario}&contrasena=${password}`, {
-        method: "GET"
+        method: "GET",
       });
 
       if (!res.ok) throw new Error("Error en la validación");
@@ -210,166 +286,6 @@ const PanelSurtir = () => {
     }
   };
 
-  const actualizarEstadoPedido = async (numeroPedido, nuevoEstado) => {
-    try {
-      const response = await fetch(`/api/actualizarEstadoPedido`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ numeroPedido, nuevoEstado })
-      });
-
-      if (!response.ok) throw new Error("Error al actualizar estado");
-      return await response.json();
-    } catch (error) {
-      console.error("Error:", error);
-      throw error;
-    }
-  };
-
-  const generarPDFDetallesPedido = async (numeroPedido, pedidoInfo) => {
-    try {
-        if (!pedidoInfo || !pedidoInfo.productos) {
-            throw new Error("Información del pedido o productos no está definida");
-        }
-
-        const doc = new jsPDF();
-        const pageWidth = doc.internal.pageSize.getWidth();
-        const pageHeight = doc.internal.pageSize.getHeight();
-
-        // Encabezado
-        doc.setFontSize(18);
-        doc.setTextColor(40);
-        doc.text('Comprobante de Surtido', pageWidth / 2, 20, { align: 'center' });
-
-        doc.setFontSize(12);
-        doc.text(`Número de Traspaso: ${numeroPedido}`, 20, 40);
-        doc.text(`Origen: ${pedidoInfo.pedido.origen || "No especificado"}`, 20, 50);
-        doc.text(`Destino: ${pedidoInfo.pedido.destino || "No especificado"}`, 20, 60);
-        doc.text(`Fecha: ${new Date().toLocaleString()}`, 20, 70);
-
-        // Generar el código de barras
-        const canvas = document.createElement('canvas');
-        JsBarcode(canvas, numeroPedido, {
-            format: 'CODE128',
-            displayValue: true,
-            fontSize: 10,
-        });
-        const imgData = canvas.toDataURL('image/png');
-
-        // Agregar el código de barras al PDF
-        doc.addImage(imgData, 'PNG', pageWidth - 70, 30, 50, 20); // Posición y tamaño del código de barras
-
-        // Tabla de productos
-        const productos = pedidoInfo.productos.map((producto, index) => [
-            index + 1,
-            producto.CNOMBREPRODUCTO,
-            producto.CUNIDADES,
-            productosEscaneados[producto.CCODIGOPRODUCTO] || 0,
-            producto.CCODIGOPRODUCTO,
-        ]);
-
-        doc.autoTable({
-            head: [['#', 'Producto', 'Solicitado', 'Escaneado', 'Código']],
-            body: productos,
-            startY: 90,
-            theme: 'grid',
-            styles: {
-                fontSize: 10,
-                halign: 'center',
-                valign: 'middle',
-            },
-            headStyles: {
-                fillColor: [0, 123, 255],
-                textColor: 255,
-                fontSize: 12,
-            },
-        });
-
-        // Espacio para firma
-        const finalY = doc.autoTable.previous.finalY + 20;
-        doc.setFontSize(12);
-        doc.text('Firma del Empleado que Surtió:', 20, finalY);
-        doc.line(20, finalY + 5, pageWidth - 20, finalY + 5); // Línea para la firma
-
-        // Pie de página
-        const pageCount = doc.internal.getNumberOfPages();
-        for (let i = 1; i <= pageCount; i++) {
-            doc.setPage(i);
-            doc.setFontSize(10);
-            doc.text(`Página ${i} de ${pageCount}`, pageWidth / 2, pageHeight - 10, { align: 'center' });
-            doc.text('Traspasos Cubylam - Todos los derechos reservados', pageWidth / 2, pageHeight - 5, { align: 'center' });
-        }
-
-        doc.save(`Comprobante_Surtido_${numeroPedido}.pdf`);
-    } catch (error) {
-        console.error("Error al generar PDF:", error);
-    }
-  };
-
-  const generarPDFCodigosBarras = async (numeroPedido, pedidoInfo) => {
-    try {
-        if (!pedidoInfo || !pedidoInfo.productos) {
-            throw new Error("No hay información de productos");
-        }
-
-        const doc = new jsPDF();
-        const pageWidth = doc.internal.pageSize.getWidth();
-        const pageHeight = doc.internal.pageSize.getHeight();
-
-        let xPos = 20; // Margen izquierdo
-        let yPos = 40; // Margen superior
-        const labelWidth = 100; // Ancho de cada etiqueta
-        const labelHeight = 60; // Altura de cada etiqueta
-        const spaceBetweenLabels = 10; // Espacio entre etiquetas
-
-        // Encabezado del PDF
-        doc.setFontSize(16);
-        doc.text('Códigos de Barras - Traspaso', pageWidth / 2, 20, { align: 'center' });
-        doc.setFontSize(12);
-        doc.text(`Número de Traspaso: ${numeroPedido}`, 20, 30);
-
-        // Generar un código de barras por producto
-        pedidoInfo.productos.forEach((producto) => {
-            const codigoCombinado = `${producto.CCODIGOPRODUCTO}-${producto.CUNIDADES}`; // Código combinado
-
-            // Crear el código de barras
-            const canvas = document.createElement('canvas');
-            JsBarcode(canvas, codigoCombinado, {
-                format: 'CODE128',
-                displayValue: true,
-                fontSize: 10,
-            });
-            const imgData = canvas.toDataURL('image/png');
-
-            // Dibujar la etiqueta
-            doc.rect(xPos, yPos, labelWidth, labelHeight); // Borde de la etiqueta
-            doc.addImage(imgData, 'PNG', xPos + 5, yPos + 5, labelWidth - 10, 30); // Código de barras
-            doc.text(producto.CNOMBREPRODUCTO, xPos + labelWidth / 2, yPos + 45, { align: 'center' }); // Nombre del producto
-            doc.text(codigoCombinado, xPos + labelWidth / 2, yPos + 55, { align: 'center' }); // Código combinado
-
-            // Ajustar posición para la siguiente etiqueta
-            xPos += labelWidth + spaceBetweenLabels;
-
-            // Si no hay espacio horizontal, mover a la siguiente fila
-            if (xPos + labelWidth > pageWidth - 20) {
-                xPos = 20; // Reiniciar posición horizontal
-                yPos += labelHeight + spaceBetweenLabels;
-
-                // Si no hay espacio vertical, agregar una nueva página
-                if (yPos + labelHeight > pageHeight - 20) {
-                    doc.addPage();
-                    yPos = 40; // Reiniciar posición vertical
-                }
-            }
-        });
-
-        // Guardar el PDF
-        doc.save(`Codigos_Barras_Traspaso_${numeroPedido}.pdf`);
-    } catch (error) {
-        console.error("Error al generar PDF de códigos:", error);
-    }
-  };
-
   const confirmarSurtido = async () => {
     try {
       await generarPDFDetallesPedido(codigoPedido, pedidoInfo);
@@ -377,7 +293,7 @@ const PanelSurtir = () => {
       await actualizarEstadoPedido(codigoPedido, "Surtido");
 
       alert(`✅ Traspaso ${codigoPedido} surtido correctamente`);
-      
+
       // Resetear estado
       setCodigoPedido("");
       setPedidoInfo(null);
@@ -392,6 +308,119 @@ const PanelSurtir = () => {
     } catch (error) {
       console.error("Error al confirmar:", error);
       alert("Error al confirmar el surtido");
+    }
+  };
+
+  const actualizarEstadoPedido = async (numeroPedido, nuevoEstado) => {
+    try {
+      const response = await fetch(`/api/actualizarEstadoPedido`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ numeroPedido, nuevoEstado }),
+      });
+
+      if (!response.ok) throw new Error("Error al actualizar estado");
+      return await response.json();
+    } catch (error) {
+      console.error("Error:", error);
+      throw error;
+    }
+  };
+
+  const generarPDFDetallesPedido = async (numeroPedido, pedidoInfo) => {
+    try {
+      const doc = new jsPDF();
+      
+      // Encabezado
+      doc.setFontSize(16);
+      doc.text(`Detalles del Traspaso: ${numeroPedido}`, 14, 20);
+      doc.setFontSize(12);
+      doc.text(`Origen: ${pedidoInfo.pedido.origen || "No especificado"}`, 14, 30);
+      doc.text(`Destino: ${pedidoInfo.pedido.destino || "No especificado"}`, 14, 40);
+      doc.text(`Fecha: ${new Date(pedidoInfo.pedido.fechaCreacion).toLocaleDateString()}`, 14, 50);
+      
+      // Tabla de productos
+      const productos = pedidoInfo.productos.map((producto, index) => [
+        index + 1,
+        producto.nombreCompleto,
+        producto.CCODIGOPRODUCTO,
+        producto.Unidades,
+        productosEscaneados[producto.codigoVariante] || 0,
+        (productosEscaneados[producto.codigoVariante] || 0) >= producto.Unidades ? "COMPLETO" : "PENDIENTE"
+      ]);
+
+      doc.autoTable({
+        startY: 60,
+        head: [["#", "Producto", "Código", "Solicitado", "Escaneado", "Estado"]],
+        body: productos,
+        styles: {
+          cellPadding: 4,
+          fontSize: 10,
+          valign: 'middle'
+        },
+        columnStyles: {
+          1: { cellWidth: 60 },
+          5: { cellWidth: 25 }
+        },
+        didDrawCell: (data) => {
+          if (data.column.index === 5 && data.cell.raw === "COMPLETO") {
+            doc.setTextColor(0, 128, 0);
+          } else if (data.column.index === 5) {
+            doc.setTextColor(255, 0, 0);
+          }
+        }
+      });
+
+      doc.save(`Detalles_Traspaso_${numeroPedido}.pdf`);
+    } catch (error) {
+      console.error("Error al generar PDF:", error);
+    }
+  };
+
+  const generarPDFCodigosBarras = async (numeroPedido, pedidoInfo) => {
+    try {
+      const doc = new jsPDF();
+      let yPosition = 20;
+      
+      // Encabezado
+      doc.setFontSize(16);
+      doc.text(`Códigos de Barras - Traspaso ${numeroPedido}`, 14, 15);
+      doc.setFontSize(10);
+      
+      // Generar códigos de barras
+      for (const producto of pedidoInfo.productos) {
+        const canvas = document.createElement("canvas");
+        JsBarcode(canvas, producto.CCODIGOPRODUCTO, { 
+          format: "CODE128",
+          width: 2,
+          height: 50,
+          displayValue: true
+        });
+        
+        const imgData = canvas.toDataURL("image/png");
+        
+        // Agregar información del producto
+        doc.text(`${producto.nombreCompleto}`, 14, yPosition);
+        yPosition += 5;
+        
+        // Agregar código de barras
+        doc.addImage(imgData, "PNG", 14, yPosition, 100, 30);
+        yPosition += 35;
+        
+        // Agregar detalles
+        doc.text(`Código: ${producto.CCODIGOPRODUCTO} - Unidades: ${producto.Unidades}`, 14, yPosition);
+        yPosition += 10;
+        
+        // Nueva página si es necesario
+        if (yPosition > 250) {
+          doc.addPage();
+          yPosition = 20;
+        }
+      }
+
+      doc.save(`Codigos_Barras_Traspaso_${numeroPedido}.pdf`);
+    } catch (error) {
+      console.error("Error al generar PDF de códigos:", error);
     }
   };
 
@@ -427,69 +456,91 @@ const PanelSurtir = () => {
               <div className={styles.pedidoInfo}>
                 <p><strong>Origen:</strong> {pedidoInfo.pedido.origen || "No especificado"}</p>
                 <p><strong>Destino:</strong> {pedidoInfo.pedido.destino || "No especificado"}</p>
+                <p><strong>Fecha creación:</strong> {new Date(pedidoInfo.pedido.fechaCreacion).toLocaleDateString()}</p>
+                <p><strong>Estatus:</strong> {pedidoInfo.pedido.estatus}</p>
               </div>
             </div>
-            
+
             {productoActual && (
               <div className={styles.productoActualContainer}>
                 <h4 className={styles.productoActualTitle}>Producto actual</h4>
                 <div className={styles.productoActualInfo}>
-                  <p><strong>Nombre:</strong> {productoActual.CNOMBREPRODUCTO}</p>
-                  <p><strong>Código:</strong> {productoActual.CCODIGOPRODUCTO}</p>
+                  <p><strong>Nombre:</strong> {productoActual.nombreCompleto}</p>
+                  <p><strong>Código a escanear:</strong> {productoActual.CCODIGOPRODUCTO}</p>
+                  <p><strong>Unidades requeridas:</strong> {productoActual.Unidades}</p>
                   <p className={styles.escaneosInfo}>
-                    <strong>Escaneados:</strong> 
+                    <strong>Escaneados:</strong>
                     <span className={styles.escaneosCount}>
-                      {productosEscaneados[productoActual.CCODIGOPRODUCTO] || 0} / {productoActual.CUNIDADES}
+                      {productosEscaneados[productoActual.codigoVariante] || 0} / {productoActual.Unidades}
                     </span>
                   </p>
                 </div>
               </div>
             )}
-            
+
             <div className={styles.productosContainer}>
-              <div className={styles.tableHeader}>
-                <div className={styles.tableColumn}><h3>Productos</h3></div>
-                <div className={styles.tableColumn}><h3>Cantidad</h3></div>
-                <div className={styles.tableColumn}><h3>Escaneados</h3></div>
-              </div>
-              
-              <div className={styles.tableBody}>
-                {pedidoInfo.productos.map((producto, index) => (
-                  <div 
-                    key={index} 
-                    className={`${styles.tableRow} ${
-                      producto.CCODIGOPRODUCTO === productoActual?.CCODIGOPRODUCTO ? styles.activeRow : ''
-                    }`}
-                  >
-                    <div className={styles.tableColumn}>{producto.CNOMBREPRODUCTO}</div>
-                    <div className={styles.tableColumn}>{producto.CUNIDADES}</div>
-                    <div className={styles.tableColumn}>
-                      <span className={
-                        (productosEscaneados[producto.CCODIGOPRODUCTO] || 0) >= producto.CUNIDADES 
-                          ? styles.completed 
-                          : styles.pending
-                      }>
-                        {productosEscaneados[producto.CCODIGOPRODUCTO] || 0}
-                      </span>
-                    </div>
-                  </div>
-                ))}
+              <h4 className={styles.productosTitle}>Productos a escanear</h4>
+              <div className={styles.tableContainer}>
+                <div className={styles.tableHeader}>
+                  <div className={styles.tableColumn}><h3>#</h3></div>
+                  <div className={styles.tableColumn}><h3>Producto</h3></div>
+                  <div className={styles.tableColumn}><h3>Código</h3></div>
+                  <div className={styles.tableColumn}><h3>Solicitado</h3></div>
+                  <div className={styles.tableColumn}><h3>Escaneado</h3></div>
+                </div>
+
+                <div className={styles.tableBody}>
+                  {pedidoInfo.productos.map((producto, index) => {
+                    const isActive = productoActual?.codigoVariante === producto.codigoVariante;
+                    const isCompleted = (productosEscaneados[producto.codigoVariante] || 0) >= producto.Unidades;
+
+                    return (
+                      <div
+                        key={`producto-${index}`}
+                        className={`${styles.tableRow} ${isActive ? styles.activeRow : ""} ${
+                          isCompleted ? styles.completedRow : ""
+                        }`}
+                      >
+                        <div className={styles.tableColumn}>{index + 1}</div>
+                        <div className={styles.tableColumn}>
+                          {producto.caracteristicas.length > 0 ? (
+                            <>
+                              <strong>{producto.nombreBase}</strong>
+                              <div className={styles.caracteristicas}>
+                                {producto.caracteristicas.join(", ")}
+                              </div>
+                            </>
+                          ) : (
+                            <strong>{producto.nombreBase}</strong>
+                          )}
+                        </div>
+                        <div className={styles.tableColumn}>{producto.CCODIGOPRODUCTO}</div>
+                        <div className={styles.tableColumn}>{producto.Unidades}</div>
+                        <div className={styles.tableColumn}>
+                          <span className={isCompleted ? styles.completed : styles.pending}>
+                            {productosEscaneados[producto.codigoVariante] || 0}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </div>
 
-            {!pedidoSurtido && !autenticacionPendiente && (
+            {!pedidoSurtido && !autenticacionPendiente && productoActual && (
               <div className={styles.scanContainer}>
                 <h5 className={styles.scanTitle}>Escanea el producto actual:</h5>
                 <div className={styles.inputContainer}>
-                    <input
-                        ref={inputProductoRef}
-                        className={styles.inputLarge}
-                        type="text"
-                        placeholder={`Ingrese código: ${productoActual?.CCODIGOPRODUCTO || ''}`}
-                        value={codigoManual}
-                        onChange={(e) => setCodigoManual(e.target.value)}
-                        onKeyDown={handleCodigoManual}
-                    />
+                  <input
+                    ref={inputProductoRef}
+                    className={styles.inputLarge}
+                    type="text"
+                    placeholder={`Ingrese código: ${productoActual.CCODIGOPRODUCTO}`}
+                    value={codigoManual}
+                    onChange={(e) => setCodigoManual(e.target.value)}
+                    onKeyDown={handleCodigoManual}
+                  />
                 </div>
                 <p className={styles.scanHint}>Presiona Enter para confirmar el escaneo</p>
               </div>
@@ -499,7 +550,7 @@ const PanelSurtir = () => {
               <div className={styles.authContainer}>
                 <h4 className={styles.authTitle}>Confirmación de Traspaso</h4>
                 <p className={styles.authSubtitle}>Ingrese sus credenciales para finalizar el proceso</p>
-                
+
                 <div className={styles.formGroup}>
                   <label className={styles.formLabel}>Usuario:</label>
                   <input
@@ -511,7 +562,7 @@ const PanelSurtir = () => {
                     onChange={(e) => setUsuario(e.target.value)}
                   />
                 </div>
-                
+
                 <div className={styles.formGroup}>
                   <label className={styles.formLabel}>Contraseña:</label>
                   <input
@@ -522,12 +573,12 @@ const PanelSurtir = () => {
                     onChange={(e) => setPassword(e.target.value)}
                   />
                 </div>
-                
+
                 {mensajeError && <p className={styles.errorMessage}>{mensajeError}</p>}
-                
-                <button 
-                  className={styles.primaryButton} 
-                  onClick={validarYConfirmarSurtido} 
+
+                <button
+                  className={styles.primaryButton}
+                  onClick={validarYConfirmarSurtido}
                   disabled={loading}
                 >
                   {loading ? "Validando..." : "Confirmar Surtido"}

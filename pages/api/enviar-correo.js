@@ -11,38 +11,52 @@ export default async function handler(req, res) {
   console.log("📩 Recibiendo datos para enviar correo:", req.body);
 
   try {
-    let { Origen, Destino, NumeroPedido } = req.body;
+    let { Origen, Destino, NumeroPedido, Producto } = req.body;
 
-    Origen = Origen.toString();
-    Destino = Destino.toString();
-
-    if (!Origen || !Destino || !NumeroPedido) {
-      console.error("❌ Datos inválidos:", { Origen, Destino, NumeroPedido });
+    // Validación de datos de entrada
+    if (!Origen || !Destino || !NumeroPedido || !Producto || Producto.length === 0) {
       return res.status(400).json({ message: "Datos inválidos en la petición" });
     }
 
+    // Convertir a string para evitar problemas de tipo
+    Origen = Origen.toString();
+    Destino = Destino.toString();
+
+    console.log(`🛠️ Validación completada. Datos de entrada correctos:`)
+    console.log(`Origen: ${Origen}, Destino: ${Destino}, Número de Pedido: ${NumeroPedido}`);
+
+    // Conexión a la base de datos
     const pool = await connectToDatabase();
 
-    // 1. Obtener productos del pedido con código
-    const productosResult = await pool.request()
-      .input("NumeroPedido", sql.VarChar, NumeroPedido)
-      .query(`
-        SELECT 
-          p.Producto AS CIDPRODUCTO,
-          p.Unidades,
-          pr.CCODIGOPRODUCTO
-        FROM Pedidos p
-        JOIN admProductos pr ON p.Producto = pr.CIDPRODUCTO
-        WHERE p.NumeroPedido = @NumeroPedido
-      `);
+    // Recuperamos los datos de productos con sus detalles
+    const productos = Producto.map(prod => {
+      let nombreBase = "";
+      let caracteristicas = "";
 
-    if (productosResult.recordset.length === 0) {
-      return res.status(404).json({ message: "No se encontraron productos para el pedido." });
-    }
+      // Filtrar productos que contienen "null" en su nombre
+      if (prod.nombre_producto && prod.nombre_producto.toLowerCase() !== "null") {
+        const partes = prod.nombre_producto.split(",");
+        const filtradas = partes.map(p => p.trim()).filter(p => p && p.toLowerCase() !== "null");
 
-    const productos = productosResult.recordset;
+        if (filtradas.length > 0) {
+          nombreBase = filtradas[0];
+          caracteristicas = filtradas.slice(1).join(", ");
+        }
+      } else {
+        nombreBase = "Producto desconocido";
+      }
 
-    // 2. Obtener correo y nombres de almacenes
+      return {
+        ...prod,
+        NombreProducto: nombreBase,
+        Caracteristicas: caracteristicas
+      };
+    });
+
+    console.log("🛠️ Productos procesados:");
+    console.log(productos);
+
+    // Obtener datos de los almacenes
     const userResult = await pool
       .request()
       .input("Origen", sql.VarChar, Origen)
@@ -64,39 +78,59 @@ export default async function handler(req, res) {
 
     const { Correo, NombreAlmacenOrigen, NombreAlmacenDestino } = userResult.recordset[0];
 
-    // 3. Generar código de barras
+    console.log("🛠️ Datos del usuario y almacén:");
+    console.log(`Correo: ${Correo}, Origen: ${NombreAlmacenOrigen}, Destino: ${NombreAlmacenDestino}`);
+
     let barcodeImage = "";
     try {
       const canvas = createCanvas(200, 50);
-      JsBarcode(canvas, NumeroPedido, { format: "CODE128", displayValue: true, fontSize: 14, textMargin: 4 });
+      JsBarcode(canvas, NumeroPedido, {
+        format: "CODE128",
+        displayValue: true,
+        fontSize: 14,
+        textMargin: 4
+      });
       barcodeImage = canvas.toDataURL();
     } catch (err) {
       console.error("⚠️ Error generando código de barras:", err);
     }
 
-    // 4. Crear HTML de productos
-    const productosHTML = productos.map(
-      (prod) =>
-        `<li><strong>${prod.CCODIGOPRODUCTO}</strong> - ${prod.Unidades} unidades</li>`
-    ).join("");
+    console.log("🛠️ Imagen del código de barras generada.");
 
-    // 5. Preparar correo
+    // Crear la lista de productos en formato HTML
+    const productosHTML = productos.map(prod => {
+      const texto = `${prod.NombreProducto}${prod.Caracteristicas ? `, ${prod.Caracteristicas}` : ""}`;
+      return `<li><strong>${prod.ProductoID}</strong> - ${texto} (${prod.Unidades} unidades)</li>`;
+    }).join("");
+
+    const mailContent = `
+      <div style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto;">
+        <h1 style="color: #2c3e50;">Orden de Surtir Traspaso</h1>
+        <p><strong>Origen:</strong> ${NombreAlmacenOrigen}</p>
+        <p><strong>Destino:</strong> ${NombreAlmacenDestino}</p>
+        <p><strong>N° Traspaso:</strong> ${NumeroPedido}</p>
+        <h2>Productos a surtir:</h2>
+        <ul>${productosHTML}</ul>
+        ${barcodeImage ? `
+          <h2 style="margin-top: 30px;">Código de barras:</h2>
+          <div style="margin-top: 10px;">
+            <img src="${barcodeImage}" alt="Código de Barras">
+          </div>
+        ` : ""}
+      </div>
+    `;
+
+    console.log("📧 Contenido del correo que se enviará:");
+    console.log(mailContent);
+
     const mailOptions = {
       from: `"Sistema de Traspasos" <${process.env.EMAIL_USER}>`,
       to: Correo,
       subject: `Orden de Surtir Traspaso - ${NumeroPedido}`,
-      html: `
-        <h1>Orden de Surtir Traspaso</h1>
-        <p><strong>Origen:</strong> ${NombreAlmacenOrigen}</p>
-        <p><strong>Destino:</strong> ${NombreAlmacenDestino}</p>
-        <p><strong>Número de Traspaso:</strong> ${NumeroPedido}</p>
-        <h2>Productos</h2>
-        <ul>${productosHTML}</ul>
-        ${barcodeImage ? `<p><strong>Código de Barras del Traspaso:</strong></p><img src="${barcodeImage}" alt="Código de Barras">` : ""}
-      `,
+      html: mailContent
     };
 
-    // 6. Enviar correo
+    // Crear el transportador de correo
     const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST || "smtp.gmail.com",
       port: Number(process.env.SMTP_PORT) || 465,
@@ -108,11 +142,13 @@ export default async function handler(req, res) {
       tls: { rejectUnauthorized: false },
     });
 
+    // Enviar correo
     const info = await transporter.sendMail(mailOptions);
     console.log(`✅ Correo enviado a ${Correo} (${info.messageId})`);
 
-    // 7. Actualizar almacén
+    // Actualizar almacén (si es necesario)
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
+
     const updateResponse = await fetch(`${apiUrl}/api/Actualizar-almacen`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -120,9 +156,11 @@ export default async function handler(req, res) {
     });
 
     const updateResult = await updateResponse.json();
-    console.log("📦 Resultado de la actualización de almacén:", updateResult);
 
-    return res.status(200).json({ message: "Correo enviado y almacén actualizado" });
+    console.log("📊 Respuesta de actualización de almacén:");
+    console.log(updateResult);
+
+    return res.status(200).json({ message: "Correo enviado y almacén actualizado", update: updateResult });
   } catch (error) {
     console.error("❌ Error en el envío de correo:", error);
     return res.status(500).json({ message: "Error interno", error: error.message });

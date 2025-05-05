@@ -56,9 +56,11 @@ const PedidoNuevo = () => {
 
         const nuevoPedido = {
           NumeroPedido: pedido.NumeroPedido || "00000",
-          Producto: pedido.Producto.map(({ ProductoID, Unidades }) => ({
+          Producto: pedido.Producto.map(({ ProductoID, Unidades, NombreProducto, Caracteristica }) => ({
             ProductoID,
             Unidades,
+            NombreProducto: NombreProducto || `Producto ${ProductoID}`,
+            Descripcion: Caracteristica ? `${NombreProducto || 'Producto'}, ${Caracteristica}` : NombreProducto || `Producto ${ProductoID}`
           })),
           Origen: pedido.Origen || "Almacén Desconocido",
           Destino: pedido.Destino || "Destino Desconocido",

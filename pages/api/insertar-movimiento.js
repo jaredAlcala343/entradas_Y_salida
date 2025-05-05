@@ -36,8 +36,17 @@ export default async function handler(req, res) {
     const pool = await connectToDatabase();
     const numeroPedidoStr = String(NumeroPedido);
 
+    // Función para limpiar "(Ninguno)"
+    const limpiarNinguno = (texto) => {
+      if (!texto) return texto;
+      return texto.replace(/\(ninguno\)/gi, '') // Elimina (ninguno) en cualquier caso
+                 .replace(/, ,/g, ',')        // Elimina comas dobles
+                 .replace(/, $/g, '')         // Elimina coma al final
+                 .trim();                     // Elimina espacios al inicio/final
+    };
+
     for (const prod of Producto) {
-      const { ProductoID, Unidades } = prod || {};
+      const { ProductoID, Unidades, NombreProducto } = prod || {};
 
       if (!ProductoID || !Unidades) {
         console.error("❌ Producto inválido en la solicitud.", prod);
@@ -58,7 +67,16 @@ export default async function handler(req, res) {
         continue;
       }
 
-      console.log("📌 Insertando pedido con:", { origenInt, destinoInt, ProductoID, Unidades });
+      // Limpiar el nombre del producto
+      const nombreProductoLimpio = limpiarNinguno(NombreProducto || `Producto ${ProductoID}`);
+
+      console.log("📌 Insertando pedido con:", { 
+        origenInt, 
+        destinoInt, 
+        ProductoID, 
+        Unidades, 
+        nombreProductoLimpio
+      });
 
       await pool
         .request()
@@ -67,14 +85,15 @@ export default async function handler(req, res) {
         .input("Destino", sql.Int, destinoInt)
         .input("Producto", sql.Int, ProductoID)
         .input("Unidades", sql.Int, Unidades)
+        .input("nombre_producto", sql.NVarChar, nombreProductoLimpio)
         .input("Fecha_Creacion", sql.Date, fechaHoy)
         .input("Fecha_Compromiso", sql.Date, fechaCompromiso)
         .input("Estatus", sql.NVarChar, "Pendiente")
         .query(`
           INSERT INTO Pedidos 
-          (NumeroPedido, Origen, Destino, Producto, Unidades, Fecha_Creacion, Fecha_Compromiso, Estatus)
+          (NumeroPedido, Origen, Destino, Producto, Unidades, nombre_producto, Fecha_Creacion, Fecha_Compromiso, Estatus)
           VALUES 
-          (@NumeroPedido, @Origen, @Destino, @Producto, @Unidades, @Fecha_Creacion, @Fecha_Compromiso, @Estatus);
+          (@NumeroPedido, @Origen, @Destino, @Producto, @Unidades, @nombre_producto, @Fecha_Creacion, @Fecha_Compromiso, @Estatus);
         `);
     }
 
@@ -84,7 +103,16 @@ export default async function handler(req, res) {
     const correoResponse = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL}/api/enviar-correo`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ NumeroPedido: numeroPedidoStr, Origen, Destino, Producto }),
+      body: JSON.stringify({ 
+        NumeroPedido: numeroPedidoStr, 
+        Origen, 
+        Destino, 
+        Producto: Producto.map(p => ({
+          ProductoID: p.ProductoID,
+          Unidades: p.Unidades,
+          nombre_producto: limpiarNinguno(p.NombreProducto || `Producto ${p.ProductoID}`)
+        })) 
+      }),
     });
 
     if (!correoResponse.ok) {
