@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import JsBarcode from 'jsbarcode';
@@ -6,15 +6,19 @@ import styles from './recibirpedidos.module.css';
 import Navbar from './navbar';
 
 const RecibirPedido = () => {
+  // Estados principales
   const [pedidoId, setPedidoId] = useState('');
   const [pedidoInfo, setPedidoInfo] = useState(null);
-  const [productoIndex, setProductoIndex] = useState(0);
-  const [codigoEscaneado, setCodigoEscaneado] = useState([]);
+  const [productoActual, setProductoActual] = useState(null);
+  const [codigoEscaneado, setCodigoEscaneado] = useState({});
   const [usuario, setUsuario] = useState('');
   const [password, setPassword] = useState('');
   const [pedidoTerminado, setPedidoTerminado] = useState(false);
-  const [mostrarFormularioValidacion, setMostrarFormularioValidacion] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [mensajeError, setMensajeError] = useState('');
+  const [escaneosRestantes, setEscaneosRestantes] = useState(0);
+
+  // Estados para modales
   const [mostrarModalDevolucion, setMostrarModalDevolucion] = useState(false);
   const [mostrarModalBorrado, setMostrarModalBorrado] = useState(false);
   const [productoSeleccionado, setProductoSeleccionado] = useState(null);
@@ -22,106 +26,183 @@ const RecibirPedido = () => {
   const [cantidadDevolucion, setCantidadDevolucion] = useState(0);
   const [usuarioDevolucion, setUsuarioDevolucion] = useState('');
   const [passwordDevolucion, setPasswordDevolucion] = useState('');
-  const [mensajeError, setMensajeError] = useState('');
   const [loadingBorrado, setLoadingBorrado] = useState(false);
   const [resumenBorrado, setResumenBorrado] = useState(null);
 
+  // Referencias para enfoque automático
+  const inputPedidoRef = useRef(null);
+  const inputProductoRef = useRef(null);
+  const inputUsuarioRef = useRef(null);
+
+  // Función para verificar si el escaneo está completo
+  const verificarEscaneoCompleto = () => {
+    return pedidoInfo?.productos?.every(producto => {
+      return (codigoEscaneado[producto.id] || 0) >= producto.cantidad;
+    });
+  };
+
+  // Efecto para manejar el enfoque de los inputs
+  useEffect(() => {
+    if (!pedidoInfo && inputPedidoRef.current) {
+      inputPedidoRef.current.focus();
+    } else if (productoActual && !verificarEscaneoCompleto() && inputProductoRef.current) {
+      inputProductoRef.current.focus();
+    } else if (verificarEscaneoCompleto() && inputUsuarioRef.current) {
+      inputUsuarioRef.current.focus();
+    }
+  }, [pedidoInfo, productoActual, codigoEscaneado]);
+
+  // Procesar productos para que cada variante sea única y escaneable
+  const procesarProductos = (productos) => {
+    return productos.flatMap((producto) => {
+      const nombreProducto = producto.nombre || producto.CNOMBREPRODUCTO || '';
+      const codigoProducto = producto.codigo || producto.CCODIGOPRODUCTO || '';
+      const idProducto = producto.id || producto.Producto || producto.idProducto;
+
+      // Dividir el nombre del producto en partes
+      const partes = nombreProducto.split(',')
+        .map((p) => p.trim())
+        .filter((p) => p && p.toLowerCase() !== "null");
+
+      if (partes.length === 0) return [];
+
+      const nombreBase = partes[0];
+      const caracteristicas = partes.slice(1);
+
+      if (caracteristicas.length > 0) {
+        return caracteristicas.map((caracteristica) => ({
+          ...producto,
+          nombreBase,
+          caracteristicas: [caracteristica],
+          nombreCompleto: `${nombreBase}, ${caracteristica}`,
+          codigo: codigoProducto,
+          id: `${idProducto}-${caracteristica.replace(/\s+/g, '-')}`,
+          cantidad: producto.cantidad || producto.Unidades || producto.unidadesPedido,
+          cantidadRecibida: 0,
+          valido: true,
+        }));
+      }
+
+      return {
+        ...producto,
+        nombreBase,
+        caracteristicas: [],
+        nombreCompleto: nombreBase,
+        codigo: codigoProducto,
+        id: idProducto,
+        cantidad: producto.cantidad || producto.Unidades || producto.unidadesPedido,
+        cantidadRecibida: 0,
+        valido: true,
+      };
+    }).filter(Boolean);
+  };
+
+  // Buscar pedido en el servidor
   const buscarPedido = async () => {
     if (!pedidoId.trim()) {
       setMensajeError('⚠️ Ingresa un código de Traspaso válido.');
       return;
     }
+    
     setLoading(true);
     setMensajeError('');
+    
     try {
       const response = await fetch(`/api/recibirPedido?pedidoId=${pedidoId}`);
       const data = await response.json();
 
-      if (response.ok) {
-        setPedidoInfo({
-          id: data.numeroPedido,
-          origen: data.origen,
-          destino: data.destino,
-          productos: data.productos.map(p => ({
-            ...p,
-            id: Number(p.id),
-            cantidadRecibida: 0
-          })),
-        });
-        setProductoIndex(0);
-        setCodigoEscaneado([]);
-        setPedidoTerminado(false);
-        setMostrarFormularioValidacion(false);
-        setResumenBorrado(null);
-      } else {
-        setMensajeError(data.message || 'Traspaso no encontrado');
-        setPedidoInfo(null);
+      if (!response.ok) throw new Error(data.message || 'Error al buscar el Traspaso');
+
+      const productosProcesados = procesarProductos(data.productos);
+
+      if (productosProcesados.length === 0) {
+        throw new Error("No se encontraron productos válidos en el traspaso");
       }
+
+      const conteoInicial = {};
+      productosProcesados.forEach(p => {
+        conteoInicial[p.id] = 0;
+      });
+
+      setPedidoInfo({
+        ...data.pedido,
+        productos: productosProcesados,
+      });
+      
+      setProductoActual(productosProcesados[0]);
+      setEscaneosRestantes(productosProcesados[0].cantidad);
+      setCodigoEscaneado(conteoInicial);
+      setPedidoTerminado(false);
+      setResumenBorrado(null);
     } catch (err) {
-      setMensajeError('Error al buscar el Traspaso');
-      console.error(err);
+      setMensajeError(err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  const handlePedidoIdKeyDown = (e) => {
-    if (e.key === 'Enter') {
-      buscarPedido();
-    }
-  };
-
+  // Escanear un producto
   const escanearProducto = (codigo) => {
-    if (!pedidoInfo?.productos || productoIndex >= pedidoInfo.productos.length) {
-      setMensajeError('No hay productos para escanear');
-      return;
-    }
+    if (!productoActual || !pedidoInfo) return;
 
-    const productoActual = pedidoInfo.productos[productoIndex];
-    const [codigoBase, cantidadEscaneada] = codigo.includes('-') 
+    const [codigoBase, cantidadStr] = codigo.includes('-') 
       ? [codigo.substring(0, codigo.lastIndexOf('-')), parseInt(codigo.split('-').pop()) || 1]
       : [codigo, 1];
 
-    if (codigoBase === productoActual.codigo) {
-      const nuevosEscaneos = Array(cantidadEscaneada).fill(codigoBase);
-      setCodigoEscaneado(prev => [...prev, ...nuevosEscaneos]);
-      
-      const nuevosProductos = [...pedidoInfo.productos];
-      nuevosProductos[productoIndex].cantidadRecibida = 
-        (nuevosProductos[productoIndex].cantidadRecibida || 0) + cantidadEscaneada;
-      setPedidoInfo({...pedidoInfo, productos: nuevosProductos});
+    const codigoAComparar = productoActual.codigo === "CUANL" ? "CUANL" : productoActual.codigo;
+    
+    if (codigoBase !== codigoAComparar) {
+      setMensajeError(`⚠️ Debes escanear: ${productoActual.codigo} (${productoActual.nombreCompleto})`);
+      return;
+    }
 
-      if (nuevosProductos[productoIndex].cantidadRecibida >= productoActual.cantidad) {
-        if (verificarEscaneoCompleto()) {
-          setMensajeError('✅ Todos los productos han sido escaneados. Ahora puedes confirmar el traspaso.');
-        } else {
-          setProductoIndex(productoIndex + 1);
-        }
+    if (cantidadStr > escaneosRestantes) {
+      setMensajeError(`⚠️ Cantidad excede lo requerido (${escaneosRestantes} restantes)`);
+      return;
+    }
+
+    const nuevosEscaneos = {
+      ...codigoEscaneado,
+      [productoActual.id]: (codigoEscaneado[productoActual.id] || 0) + cantidadStr,
+    };
+
+    setCodigoEscaneado(nuevosEscaneos);
+    setEscaneosRestantes(prev => prev - cantidadStr);
+
+    const nuevosProductos = pedidoInfo.productos.map(p => 
+      p.id === productoActual.id 
+        ? { ...p, cantidadRecibida: (p.cantidadRecibida || 0) + cantidadStr }
+        : p
+    );
+
+    setPedidoInfo({...pedidoInfo, productos: nuevosProductos});
+
+    if (nuevosEscaneos[productoActual.id] >= productoActual.cantidad) {
+      setMensajeError(`✅ Completado: ${productoActual.nombreCompleto}`);
+
+      const indexActual = pedidoInfo.productos.findIndex(p => p.id === productoActual.id);
+      const siguienteProducto = pedidoInfo.productos.slice(indexActual + 1).find(p => {
+        return (nuevosEscaneos[p.id] || 0) < p.cantidad;
+      });
+
+      if (siguienteProducto) {
+        setProductoActual(siguienteProducto);
+        setEscaneosRestantes(siguienteProducto.cantidad - (nuevosEscaneos[siguienteProducto.id] || 0));
+      } else if (verificarEscaneoCompleto()) {
+        setMensajeError("✅ Todos los productos escaneados. Ingresa credenciales para confirmar.");
       }
-    } else {
-      setMensajeError(`❌ Código incorrecto. Esperado: ${productoActual.codigo}, Recibido: ${codigoBase}`);
     }
   };
 
-  const verificarEscaneoCompleto = () => {
-    return pedidoInfo?.productos?.every(producto => {
-      return (producto.cantidadRecibida || 0) >= producto.cantidad;
-    });
-  };
-
+  // Abrir modal de devolución
   const abrirModalDevolucion = (producto) => {
     if (!producto?.id) {
       setMensajeError('El producto no tiene ID definido');
       return;
     }
     
-    const maxDevolucion = Math.max(0, (producto.cantidadRecibida || 0) - 1);
-    
-    setProductoSeleccionado({
-      ...producto,
-      id: Number(producto.id)
-    });
-    setCantidadDevolucion(1); // Iniciar con 1 unidad en lugar de la cantidad faltante
+    setProductoSeleccionado(producto);
+    setCantidadDevolucion(1);
     setMotivoDevolucion('');
     setUsuarioDevolucion('');
     setPasswordDevolucion('');
@@ -129,15 +210,13 @@ const RecibirPedido = () => {
     setMensajeError('');
   };
 
+  // Abrir modal de borrado
   const abrirModalBorrado = (producto) => {
     if (!producto?.id) {
       setMensajeError('El producto no tiene ID definido');
       return;
     }
-    setProductoSeleccionado({
-      ...producto,
-      id: Number(producto.id)
-    });
+    setProductoSeleccionado(producto);
     setUsuarioDevolucion('');
     setPasswordDevolucion('');
     setMostrarModalBorrado(true);
@@ -150,16 +229,25 @@ const RecibirPedido = () => {
     }
 
     try {
-      const res = await fetch(`/api/data?type=validarUsuario&usuario=${usuario}&contrasena=${password}`, {
-        method: "GET"
+      const url = `/api/data?type=validarUsuario&usuario=${encodeURIComponent(usuario)}&contrasena=${encodeURIComponent(password)}`;
+      
+      console.log('URL de validación:', url);
+      
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        }
       });
-
-      if (!res.ok) throw new Error("Error en la validación");
+      
+      if (!res.ok) {
+        throw new Error(`Error HTTP: ${res.status}`);
+      }
 
       const data = await res.json();
 
       if (!data.valid) {
-        throw new Error("Credenciales inválidas");
+        throw new Error(data.message || "Credenciales inválidas");
       }
 
       if (!['Admin', 'Supervisor'].includes(data.rol)) {
@@ -168,83 +256,73 @@ const RecibirPedido = () => {
 
       return true;
     } catch (error) {
-      throw error;
+      console.error('Error en validarUsuarioAutorizado:', {
+        usuario,
+        error: error.message
+      });
+      throw new Error("Error al validar credenciales. Por favor intente nuevamente.");
     }
   };
 
+  // Función mejorada para confirmar devolución
   const confirmarDevolucion = async () => {
     try {
-        if (!pedidoId || !productoSeleccionado?.id || cantidadDevolucion <= 0 || !usuarioDevolucion || !passwordDevolucion) {
-            throw new Error(`Datos incompletos:
-              - Traspaso: ${pedidoId || 'Falta'}
-              - Producto ID: ${productoSeleccionado?.id || 'Falta ID'}
-              - Cantidad: ${cantidadDevolucion > 0 ? 'OK' : 'Debe ser > 0'}
-              - Usuario: ${usuarioDevolucion || 'Falta'}
-              - Contraseña: ${passwordDevolucion ? 'OK' : 'Falta'}`);
-        }
+      setLoading(true);
+      setMensajeError('');
 
-        // Validar que no se deje el producto en 0
-        const cantidadActual = productoSeleccionado.cantidadRecibida || 0;
-        const nuevaCantidadRecibida = cantidadActual - cantidadDevolucion;
+      const response = await fetch('/api/registrarDevolucion', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pedidoId,
+          productoId: productoSeleccionado.Producto || productoSeleccionado.idProducto || productoSeleccionado.id,
+          motivo: motivoDevolucion,
+          cantidad: cantidadDevolucion,
+          usuario: usuarioDevolucion,
+          password: passwordDevolucion
+        }),
+      });
 
-        if (nuevaCantidadRecibida < 0) {
-            throw new Error('No puedes devolver más unidades de las que se han recibido');
-        }
+      const data = await response.json();
 
-        if (nuevaCantidadRecibida === 0) {
-            throw new Error('No puedes dejar el producto con 0 unidades recibidas');
-        }
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || 'Error al registrar la devolución');
+      }
 
-        await validarUsuarioAutorizado(usuarioDevolucion, passwordDevolucion);
+      // --- ACTUALIZA EL FRONTEND AUTOMÁTICAMENTE ---
+      // Resta la cantidad devuelta al producto correspondiente
+      setCodigoEscaneado(prev => ({
+        ...prev,
+        [productoSeleccionado.id]: (prev[productoSeleccionado.id] || 0) - Number(cantidadDevolucion)
+      }));
 
-        const productoIdNumerico = Number(productoSeleccionado.id);
-        if (isNaN(productoIdNumerico)) {
-            throw new Error('El ID del producto no es válido');
-        }
+      // Opcional: actualiza el objeto de productos si tienes un estado para ello
+      setPedidoInfo(prev => ({
+        ...prev,
+        productos: prev.productos.map(p =>
+          p.id === productoSeleccionado.id
+            ? { ...p, cantidad: p.cantidad - Number(cantidadDevolucion) }
+            : p
+        )
+      }));
 
-        const response = await fetch('/api/devoluciones', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                numeroPedido: pedidoId,
-                productoId: productoIdNumerico,
-                cantidadDevolucion: Number(cantidadDevolucion),
-                motivo: motivoDevolucion,
-                usuarioAutorizacion: usuarioDevolucion,
-                fecha: new Date().toISOString()
-            }),
-        });
+      // Cierra el modal y limpia campos
+      setMostrarModalDevolucion(false);
+      setCantidadDevolucion('');
+      setMotivoDevolucion('');
+      setUsuarioDevolucion('');
+      setPasswordDevolucion('');
+      setProductoSeleccionado(null);
 
-        const data = await response.json();
-
-        if (!response.ok) {
-            throw new Error(data.message || 'Error en la respuesta del servidor');
-        }
-
-        setMensajeError(`✅ Devolución registrada: ${cantidadDevolucion} unidades de ${productoSeleccionado.nombre}`);
-
-        // Actualizar las cantidades de solicitado y escaneado
-        const nuevosProductos = [...pedidoInfo.productos];
-        const productoIndex = nuevosProductos.findIndex(p => p.id === productoSeleccionado.id);
-
-        if (productoIndex !== -1) {
-            nuevosProductos[productoIndex].cantidad -= cantidadDevolucion; // Reducir la cantidad solicitada
-            nuevosProductos[productoIndex].cantidadRecibida -= cantidadDevolucion; // Reducir la cantidad escaneada
-        }
-
-        setPedidoInfo({ ...pedidoInfo, productos: nuevosProductos });
-
-        setMostrarModalDevolucion(false);
-        setMotivoDevolucion('');
-        setCantidadDevolucion(0);
-        setUsuarioDevolucion('');
-        setPasswordDevolucion('');
+      setMensajeError('✅ Devolución registrada correctamente');
     } catch (error) {
-        setMensajeError(error.message);
-        console.error('Error al registrar devolución:', error);
+      setMensajeError(error.message);
+    } finally {
+      setLoading(false);
     }
-};
+  };
 
+  // Confirmar borrado de producto - FUNCIÓN ACTUALIZADA CON PDF
   const confirmarBorrado = async () => {
     try {
       setLoadingBorrado(true);
@@ -256,13 +334,17 @@ const RecibirPedido = () => {
 
       await validarUsuarioAutorizado(usuarioDevolucion, passwordDevolucion);
 
+      // Enviar el ID real del producto
+      const productoIdReal = productoSeleccionado.Producto || productoSeleccionado.idProducto || productoSeleccionado.id;
+
       const response = await fetch('/api/borrarProducto', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           numeroPedido: pedidoId,
-          productoId: Number(productoSeleccionado.id),
-          usuarioAutorizacion: usuarioDevolucion
+          productoId: productoIdReal,
+          usuario: usuarioDevolucion,
+          password: passwordDevolucion
         }),
       });
 
@@ -272,190 +354,142 @@ const RecibirPedido = () => {
         throw new Error(data.message || 'Error al borrar el producto');
       }
 
-      // Mostrar resumen del borrado
+      // Crear resumen con los datos del PDF
       setResumenBorrado({
-        producto: productoSeleccionado.nombre,
+        producto: productoSeleccionado.nombreCompleto,
         codigo: productoSeleccionado.codigo,
         cantidad: productoSeleccionado.cantidad,
         traspasoCompleto: data.detalles.documentoEliminado,
-        pdfBase64: data.detalles.pdfBase64
+        pdfBase64: data.detalles.pdfBase64,
+        usuario: usuarioDevolucion,
+        fecha: new Date().toLocaleString('es-MX', {
+          timeZone: 'America/Mexico_City'
+        })
       });
 
       // Mostrar PDF en nueva pestaña
       if (data.detalles.pdfBase64) {
         const pdfWindow = window.open();
         pdfWindow.document.write(`
-          <iframe width='100%' height='100%' 
-          src='data:application/pdf;base64,${data.detalles.pdfBase64}'></iframe>
+          <iframe 
+            width='100%' 
+            height='100%' 
+            src='data:application/pdf;base64,${data.detalles.pdfBase64}'
+            style="border: none;"
+          ></iframe>
         `);
       }
 
-      setMensajeError(`✅ Producto borrado: ${productoSeleccionado.nombre}`);
+      setMensajeError(`✅ Producto borrado: ${productoSeleccionado.nombreCompleto}`);
       
       // Actualizar lista de productos
       const nuevosProductos = pedidoInfo.productos.filter(p => p.id !== productoSeleccionado.id);
       
       if (nuevosProductos.length === 0) {
-        // Si no quedan productos, limpiar todo
         setPedidoInfo(null);
         setPedidoId('');
       } else {
-        // Si quedan productos, actualizar la lista
+        if (productoActual?.id === productoSeleccionado.id) {
+          const siguienteProducto = nuevosProductos.find(p => (codigoEscaneado[p.id] || 0) < p.cantidad) || nuevosProductos[0];
+          setProductoActual(siguienteProducto);
+          setEscaneosRestantes(siguienteProducto.cantidad - (codigoEscaneado[siguienteProducto.id] || 0));
+        }
+        
         setPedidoInfo({...pedidoInfo, productos: nuevosProductos});
       }
 
       setMostrarModalBorrado(false);
-      setUsuarioDevolucion('');
-      setPasswordDevolucion('');
     } catch (error) {
       setMensajeError(error.message);
-      console.error('Error al borrar producto:', error);
     } finally {
       setLoadingBorrado(false);
     }
   };
 
-  const cerrarModalDevolucion = () => {
-    setMostrarModalDevolucion(false);
-    setMotivoDevolucion('');
-    setCantidadDevolucion(0);
-    setUsuarioDevolucion('');
-    setPasswordDevolucion('');
-  };
-
-  const cerrarModalBorrado = () => {
-    setMostrarModalBorrado(false);
-    setUsuarioDevolucion('');
-    setPasswordDevolucion('');
-  };
-
+  // Generar comprobante PDF
   const generarComprobantePDF = () => {
     if (!pedidoInfo) return;
 
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
 
-    // Encabezado
     doc.setFontSize(18);
     doc.setTextColor(40);
     doc.text('Comprobante de Traspaso Recibido', pageWidth / 2, 20, { align: 'center' });
 
-    // Información del traspaso
     doc.setFontSize(12);
-    doc.text(`Identificador del Traspaso: ${pedidoInfo.id}`, 20, 40);
-    doc.text(`Origen: ${pedidoInfo.origen}`, 20, 50);
-    doc.text(`Destino: ${pedidoInfo.destino}`, 20, 60);
+    doc.text(`Identificador del Traspaso: ${pedidoInfo.numero}`, 20, 40);
+    doc.text(`Origen: ${pedidoInfo.NombreOrigen || pedidoInfo.origen} (${pedidoInfo.origen})`, 20, 50);
+    doc.text(`Destino: ${pedidoInfo.NombreDestino || pedidoInfo.destino} (${pedidoInfo.destino})`, 20, 60);
     doc.text(`Confirmado por: ${usuario}`, 20, 70);
     doc.text(`Fecha: ${new Date().toLocaleString()}`, 20, 80);
 
-    // Tabla de productos
     const productos = pedidoInfo.productos.map((producto, index) => [
-        index + 1,
-        producto.nombre,
-        producto.cantidad,
-        producto.cantidadRecibida || 0,
-        producto.codigo,
+      index + 1,
+      producto.nombreCompleto,
+      producto.cantidad,
+      codigoEscaneado[producto.id] || 0,
+      producto.codigo,
+      (codigoEscaneado[producto.id] || 0) >= producto.cantidad ? '✅' : '❌'
     ]);
 
     doc.autoTable({
-        head: [['#', 'Producto', 'Solicitado', 'Recibido', 'Código']],
-        body: productos,
-        startY: 90,
-        theme: 'grid',
-        styles: {
-            fontSize: 10,
-            halign: 'center',
-            valign: 'middle',
-        },
-        headStyles: {
-            fillColor: [0, 123, 255],
-            textColor: 255,
-            fontSize: 12,
-        },
+      head: [['#', 'Producto', 'Solicitado', 'Recibido', 'Código', 'Estado']],
+      body: productos,
+      startY: 90,
+      theme: 'grid',
+      styles: {
+        fontSize: 10,
+        halign: 'center',
+        valign: 'middle',
+      },
+      headStyles: {
+        fillColor: [0, 123, 255],
+        textColor: 255,
+        fontSize: 12,
+      },
+      columnStyles: {
+        1: { cellWidth: 60 },
+        5: { cellWidth: 20 }
+      }
     });
 
-    // Espacio para firma
-    const finalY = doc.autoTable.previous.finalY + 20;
-    doc.setFontSize(12);
-    doc.text('Firma del Empleado que Recibe:', 20, finalY);
-    doc.line(20, finalY + 5, pageWidth - 20, finalY + 5); // Línea para la firma
-
-    // Pie de página
-    const pageCount = doc.internal.getNumberOfPages();
-    for (let i = 1; i <= pageCount; i++) {
-        doc.setPage(i);
-        doc.setFontSize(10);
-        doc.text(`Página ${i} de ${pageCount}`, pageWidth / 2, pageHeight - 10, { align: 'center' });
-        doc.text('Traspasos Cubylam - Todos los derechos reservados', pageWidth / 2, pageHeight - 5, { align: 'center' });
-    }
-
-    doc.save(`Comprobante_Traspaso_${pedidoInfo.id}.pdf`);
+    doc.save(`Comprobante_Traspaso_${pedidoInfo.numero}.pdf`);
   };
 
-  const generarCodigosBarrasPDF = () => {
-    if (!pedidoInfo) return;
-
-    const doc = new jsPDF();
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-
-    doc.setFontSize(16);
-    doc.text('Códigos de Barras de Productos', pageWidth / 2, 20, { align: 'center' });
-    doc.setFontSize(10);
-    doc.text(`Traspaso: ${pedidoInfo.id} - ${new Date().toLocaleDateString()}`, 20, 30);
-
-    let xPos = 20;
-    let yPos = 40;
-    const labelWidth = 60;
-    const labelHeight = 40;
-
-    pedidoInfo.productos.forEach((producto) => {
-        const codigoBase = producto.codigo.includes('-')
-            ? producto.codigo.substring(0, producto.codigo.lastIndexOf('-'))
-            : producto.codigo;
-
-        for (let i = 0; i < producto.cantidad; i++) {
-            const canvas = document.createElement('canvas');
-            JsBarcode(canvas, codigoBase, {
-                format: 'CODE128',
-                displayValue: true,
-                fontSize: 10,
-            });
-            const imgData = canvas.toDataURL('image/png');
-
-            // Dibujar etiqueta
-            doc.rect(xPos, yPos, labelWidth, labelHeight); // Borde de la etiqueta
-            doc.addImage(imgData, 'PNG', xPos + 5, yPos + 5, labelWidth - 10, 20);
-            doc.text(producto.nombre, xPos + labelWidth / 2, yPos + 30, { align: 'center' });
-            doc.text(codigoBase, xPos + labelWidth / 2, yPos + 35, { align: 'center' });
-
-            xPos += labelWidth + 10;
-            if (xPos + labelWidth > pageWidth) {
-                xPos = 20;
-                yPos += labelHeight + 10;
-                if (yPos + labelHeight > pageHeight - 20) {
-                    doc.addPage();
-                    yPos = 20;
-                }
-            }
-        }
-    });
-
-    doc.save(`Codigos_Barras_Traspaso_${pedidoInfo.id}.pdf`);
-  };
-
+  // Confirmar terminación del pedido
   const confirmarTerminarPedido = async () => {
     try {
       setLoading(true);
       setMensajeError('');
 
+      if (!usuario || !password) {
+        throw new Error('Debe ingresar usuario y contraseña');
+      }
+
       await validarUsuarioAutorizado(usuario, password);
 
-      const response = await fetch('/api/completarPedido', {
+      const productosParaEnviar = pedidoInfo.productos.map(p => ({
+        id: p.id,
+        codigo: p.codigo,
+        cantidad: codigoEscaneado[p.id] || 0
+      }));
+
+      console.log('Enviando datos para terminar pedido:', {
+        pedidoId,
+        usuario,
+        productos: productosParaEnviar
+      });
+
+      const response = await fetch('/api/recibirPedido', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ numeroPedido: pedidoId, usuario, password }),
+        body: JSON.stringify({ 
+          pedidoId,
+          usuario: usuario.trim(),
+          password: password.trim(),
+          productosEscaneados: productosParaEnviar
+        }),
       });
 
       const data = await response.json();
@@ -463,13 +497,16 @@ const RecibirPedido = () => {
       if (response.ok) {
         setMensajeError('✅ Traspaso Completado con Éxito.');
         generarComprobantePDF();
-        generarCodigosBarrasPDF();
-
-        if (pedidoInfo && pedidoInfo.destino) {
+        
+        if (pedidoInfo.destino) {
           const updateResponse = await fetch('/api/Almacen_destino', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ numeroPedido: pedidoId, destino: pedidoInfo.destino }),
+            body: JSON.stringify({ 
+              numeroPedido: pedidoId, 
+              destino: pedidoInfo.destino,
+              productos: productosParaEnviar
+            }),
           });
 
           if (!updateResponse.ok) {
@@ -478,32 +515,22 @@ const RecibirPedido = () => {
           }
         }
 
-        setPedidoInfo(null);
-        setPedidoId('');
-        setUsuario('');
-        setPassword('');
-        setPedidoTerminado(false);
-        setMostrarFormularioValidacion(false);
+        setPedidoTerminado(true);
       } else {
         throw new Error(data.message || '❌ Error al actualizar el Traspaso');
       }
     } catch (error) {
       setMensajeError(error.message);
-      console.error(error);
     } finally {
       setLoading(false);
     }
   };
 
-  const cerrarResumenBorrado = () => {
-    setResumenBorrado(null);
-  };
-
   return (
-    <div>
+    <div className={styles.container}>
       <Navbar />
       <div className={styles.panelContainer}>
-        <h3>Recibir Traspaso</h3>
+        <h3 className={styles.panelTitle}>Recepción de Traspasos</h3>
         
         {mensajeError && (
           <div className={mensajeError.includes('✅') ? styles.successMessage : styles.errorMessage}>
@@ -512,90 +539,115 @@ const RecibirPedido = () => {
         )}
 
         {!pedidoInfo ? (
-          <div>
-            <h4>Escanea código del Traspaso</h4>
-            <div className={styles.inputContainer}>
+          <div className={styles.searchContainer}>
+            <h4 className={styles.subtitle}>Escanea código del Traspaso</h4>
+            <div className={styles.inputGroup}>
               <input
+                ref={inputPedidoRef}
                 type="text"
                 placeholder="Ingresa el número de Traspaso"
                 value={pedidoId}
                 onChange={(e) => setPedidoId(e.target.value)}
-                onKeyDown={handlePedidoIdKeyDown}
+                onKeyDown={(e) => e.key === 'Enter' && buscarPedido()}
                 autoFocus
               />
-              <button onClick={buscarPedido} disabled={loading}>
+              <button 
+                onClick={buscarPedido} 
+                disabled={loading}
+                className={styles.primaryButton}
+              >
                 {loading ? 'Buscando...' : 'Buscar Traspaso'}
               </button>
             </div>
           </div>
         ) : (
-          <div>
+          <div className={styles.pedidoContainer}>
             <div className={styles.pedidoHeader}>
-              <h4>Traspaso Numero: {pedidoInfo.id}</h4>
-              <p><strong>Origen:</strong> {pedidoInfo.origen}</p>
-              <p><strong>Destino:</strong> {pedidoInfo.destino}</p>
-              <p><strong>Estado:</strong> {verificarEscaneoCompleto() ? '✅ Listo para confirmar' : '🔄 En progreso'}</p>
+              <h4>Traspaso: {pedidoInfo.numero}</h4>
+              <div className={styles.pedidoInfo}>
+                <p><strong>Origen:</strong> {pedidoInfo.NombreOrigen || pedidoInfo.origen}</p>
+                <p><strong>Destino:</strong> {pedidoInfo.NombreDestino || pedidoInfo.destino}</p>
+                <p><strong>Fecha creación:</strong> {new Date(pedidoInfo.fechaCreacion).toLocaleDateString()}</p>
+                <p><strong>Estatus:</strong> {pedidoInfo.estatus || 'Activo'}</p>
+              </div>
             </div>
             
+            {productoActual && !verificarEscaneoCompleto() && (
+              <div className={styles.productoActualContainer}>
+                <h4 className={styles.productoActualTitle}>Producto actual</h4>
+                <div className={styles.productoActualInfo}>
+                  <p><strong>{productoActual.nombreCompleto}</strong></p>
+                  <p><strong>Código:</strong> {productoActual.codigo}</p>
+                  <p><strong>Cantidad a escanear:</strong> {productoActual.cantidad}</p>
+                  <p><strong>Escaneados:</strong> {codigoEscaneado[productoActual.id] || 0}</p>
+                </div>
+              </div>
+            )}
+
             <div className={styles.productosContainer}>
-              <h5>Productos:</h5>
-              <table className={styles.productosTable}>
-                <thead>
-                  <tr>
-                    <th>Producto</th>
-                    <th>Código</th>
-                    <th>Solicitado</th>
-                    <th>Recibido</th>
-                    <th>Faltante</th>
-                    <th>Acciones</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pedidoInfo.productos.map((producto, index) => {
-                    const faltante = Math.max(0, producto.cantidad - (producto.cantidadRecibida || 0));
-                    const productoCompleto = (producto.cantidadRecibida || 0) >= producto.cantidad;
-                    return (
-                      <tr key={index} className={faltante <= 0 ? styles.completo : ''}>
-                        <td>{producto.nombre}</td>
-                        <td>{producto.codigo}</td>
-                        <td>{producto.cantidad}</td>
-                        <td>{producto.cantidadRecibida || 0}</td>
-                        <td>{faltante}</td>
-                        <td>
-                          <div className={styles.botonesAccion}>
-                            <button 
-                              onClick={() => abrirModalDevolucion(producto)}
-                              disabled={!productoCompleto || (producto.cantidadRecibida || 0) <= 1}
-                              className={styles.botonDevolucion}
-                            >
-                              Devolución
-                            </button>
-                            <button 
-                              onClick={() => abrirModalBorrado(producto)}
-                              className={styles.botonBorrar}
-                            >
-                              Borrar
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              <h4>Productos a escanear</h4>
+              <div className={styles.tableContainer}>
+                <table className={styles.productosTable}>
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Producto</th>
+                      <th>Código</th>
+                      <th>Solicitado</th>
+                      <th>Escaneado</th>
+                      <th>Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pedidoInfo.productos.map((producto, index) => {
+                      const productoCompleto = (codigoEscaneado[producto.id] || 0) >= producto.cantidad;
+                      const esProductoActual = productoActual?.id === producto.id;
+
+                      return (
+                        <tr key={index} className={`
+                          ${esProductoActual ? styles.activeRow : ''}
+                          ${productoCompleto ? styles.completedRow : ''}
+                        `}>
+                          <td>{index + 1}</td>
+                          <td>{producto.nombreCompleto}</td>
+                          <td>{producto.codigo}</td>
+                          <td>{producto.Unidades}</td>
+                          <td>{codigoEscaneado[producto.id] || 0}</td>
+                          <td>
+                            <div className={styles.accionesContainer}>
+                              <button 
+                                onClick={() => abrirModalDevolucion(producto)}
+                                disabled={!productoCompleto || (codigoEscaneado[producto.id] || 0) <= 1}
+                                className={styles.secondaryButton}
+                              >
+                                Devolución
+                              </button>
+                              <button 
+                                onClick={() => abrirModalBorrado(producto)}
+                                className={styles.dangerButton}
+                              >
+                                Borrar
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
 
             <div className={styles.scanSection}>
               {!verificarEscaneoCompleto() ? (
                 <>
-                  <h5>Escaneo de productos</h5>
-                  <p>Producto actual: <strong>
-                    {pedidoInfo.productos[productoIndex]?.nombre || '✅ Todos los productos escaneados'}
-                  </strong></p>
-                  <p>Formato aceptado: <code>CÓDIGO-CANTIDAD</code> (ej: {pedidoInfo.productos[productoIndex]?.codigo || 'CODIGO'}-3)</p>
+                  <div className={styles.scanInstructions}>
+                    <p>Escanea el código de barras del producto actual</p>
+                  </div>
                   <input
+                    ref={inputProductoRef}
                     type="text"
-                    placeholder="Escanea el código de barras"
+                    placeholder={`Ingresa ${productoActual?.codigo || 'el código'}`}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
                         escanearProducto(e.target.value.trim());
@@ -607,83 +659,88 @@ const RecibirPedido = () => {
                   />
                 </>
               ) : (
-                <p className={styles.successMessage}>✅ Todos los productos han sido escaneados. Puedes confirmar el traspaso.</p>
+                <div className={styles.confirmacionSection}>
+                  <h4>Confirmar Recepción Completa</h4>
+                  <div className={styles.formGroup}>
+                    <label>Usuario autorizado:</label>
+                    <input
+                      ref={inputUsuarioRef}
+                      type="text"
+                      value={usuario}
+                      onChange={(e) => setUsuario(e.target.value)}
+                      placeholder="Tu correo electrónico"
+                    />
+                  </div>
+                  <div className={styles.formGroup}>
+                    <label>Contraseña:</label>
+                    <input
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="Tu contraseña"
+                    />
+                  </div>
+                  <button 
+                    onClick={confirmarTerminarPedido}
+                    className={styles.primaryButton}
+                    disabled={loading}
+                  >
+                    {loading ? 'Procesando...' : 'Confirmar Traspaso'}
+                  </button>
+                </div>
               )}
             </div>
-
-            {verificarEscaneoCompleto() && (
-              <div className={styles.confirmacionSection}>
-                <h4>Confirmar Recepción Completa</h4>
-                <div className={styles.formGroup}>
-                  <label>Usuario:</label>
-                  <input
-                    type="text"
-                    value={usuario}
-                    onChange={(e) => setUsuario(e.target.value)}
-                    placeholder="Tu usuario"
-                  />
-                </div>
-                <div className={styles.formGroup}>
-                  <label>Contraseña:</label>
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Tu contraseña"
-                  />
-                </div>
-                <button 
-                  onClick={confirmarTerminarPedido}
-                  className={styles.botonConfirmar}
-                  disabled={loading}
-                >
-                  {loading ? 'Procesando...' : 'Confirmar Traspaso'}
-                </button>
-              </div>
-            )}
 
             {mostrarModalDevolucion && (
               <div className={styles.modalOverlay}>
                 <div className={styles.modal}>
                   <h4>Registrar Devolución</h4>
                   <div className={styles.modalBody}>
-                    <p><strong>Producto:</strong> {productoSeleccionado?.nombre}</p>
-                    <p><strong>Código:</strong> {productoSeleccionado?.codigo}</p>
-                    <p><strong>Recibido:</strong> {productoSeleccionado?.cantidadRecibida || 0} / {productoSeleccionado?.cantidad}</p>
-                    <p><strong>Máximo a devolver:</strong> {Math.max(0, (productoSeleccionado?.cantidadRecibida || 0) - 1)}</p>
+                    <div className={styles.modalInfo}>
+                      <p><strong>Producto:</strong> {productoSeleccionado?.nombreCompleto}</p>
+                      <p><strong>Código:</strong> {productoSeleccionado?.codigo}</p>
+                      <p><strong>Recibido:</strong> {codigoEscaneado[productoSeleccionado?.id] || 0} / {productoSeleccionado?.cantidad}</p>
+                    </div>
 
                     <div className={styles.formGroup}>
-                      <label>Cantidad a devolver (1-{Math.max(0, (productoSeleccionado?.cantidadRecibida || 0) - 1)}):</label>
+                      <label>Cantidad a devolver (1-{Math.max(0, (codigoEscaneado[productoSeleccionado?.id] || 0) - 1)}):</label>
                       <input 
                         type="number"
                         min="1"
-                        max={Math.max(0, (productoSeleccionado?.cantidadRecibida || 0) - 1)}
+                        max={Math.max(0, (codigoEscaneado[productoSeleccionado?.id] || 0) - 1)}
                         value={cantidadDevolucion}
                         onChange={(e) => {
-                          const max = Math.max(0, (productoSeleccionado?.cantidadRecibida || 0) - 1);
-                          const value = Math.max(1, Math.min(max, Number(e.target.value) || 1) );
+                          const max = Math.max(0, (codigoEscaneado[productoSeleccionado?.id] || 0) - 1);
+                          const value = Math.max(1, Math.min(max, Number(e.target.value) || 1));
                           setCantidadDevolucion(value);
                         }}
                       />
                     </div>
 
                     <div className={styles.formGroup}>
-                      <label>Motivo:</label>
+                      <label>Motivo: ({200 - motivoDevolucion.length} caracteres restantes)</label>
                       <textarea
                         value={motivoDevolucion}
-                        onChange={(e) => setMotivoDevolucion(e.target.value)}
-                        placeholder="Describe el motivo de la devolución"
+                        onChange={(e) => {
+                          const motivo = e.target.value.substring(0, 200);
+                          setMotivoDevolucion(motivo);
+                        }}
+                        placeholder="Describe el motivo de la devolución (máx. 200 caracteres)"
                         rows={3}
+                        maxLength={200}
                       />
+                      {motivoDevolucion.length >= 200 && (
+                        <span className={styles.warningText}>Has alcanzado el límite máximo de caracteres</span>
+                      )}
                     </div>
 
                     <div className={styles.formGroup}>
                       <label>Usuario autorizado (Admin/Supervisor):</label>
                       <input
-                        type="text"
+                        type="email"
                         value={usuarioDevolucion}
                         onChange={(e) => setUsuarioDevolucion(e.target.value)}
-                        placeholder="Ingrese su usuario"
+                        placeholder="Ingrese su correo electrónico"
                       />
                     </div>
 
@@ -700,15 +757,14 @@ const RecibirPedido = () => {
                     <div className={styles.modalFooter}>
                       <button 
                         onClick={confirmarDevolucion}
-                        disabled={!cantidadDevolucion || !motivoDevolucion || !usuarioDevolucion || !passwordDevolucion || loading}
-                        className={styles.botonConfirmar}
+                        disabled={!cantidadDevolucion || !motivoDevolucion || !usuarioDevolucion || !passwordDevolucion}
+                        className={styles.primaryButton}
                       >
-                        {loading ? 'Procesando...' : 'Registrar Devolución'}
+                        Registrar Devolución
                       </button>
                       <button 
-                        onClick={cerrarModalDevolucion}
-                        disabled={loading}
-                        className={styles.botonCancelar}
+                        onClick={() => setMostrarModalDevolucion(false)}
+                        className={styles.secondaryButton}
                       >
                         Cancelar
                       </button>
@@ -728,20 +784,19 @@ const RecibirPedido = () => {
                       <p>Estás a punto de eliminar completamente este producto del traspaso.</p>
                     </div>
 
-                    <div className={styles.productoInfo}>
-                      <p><strong>Producto:</strong> {productoSeleccionado?.nombre}</p>
+                    <div className={styles.modalInfo}>
+                      <p><strong>Producto:</strong> {productoSeleccionado?.nombreCompleto}</p>
                       <p><strong>Código:</strong> {productoSeleccionado?.codigo}</p>
                       <p><strong>Cantidad:</strong> {productoSeleccionado?.cantidad} unidades</p>
-                      <p><strong>Traspaso:</strong> {pedidoId}</p>
                     </div>
 
                     <div className={styles.formGroup}>
                       <label>Usuario autorizado (Admin/Supervisor):</label>
                       <input
-                        type="text"
+                        type="email"
                         value={usuarioDevolucion}
                         onChange={(e) => setUsuarioDevolucion(e.target.value)}
-                        placeholder="Ingrese su usuario"
+                        placeholder="Ingrese su correo electrónico"
                         disabled={loadingBorrado}
                       />
                     </div>
@@ -761,14 +816,14 @@ const RecibirPedido = () => {
                       <button 
                         onClick={confirmarBorrado}
                         disabled={!usuarioDevolucion || !passwordDevolucion || loadingBorrado}
-                        className={styles.botonBorrar}
+                        className={styles.dangerButton}
                       >
                         {loadingBorrado ? 'Procesando...' : 'Confirmar Borrado'}
                       </button>
                       <button 
-                        onClick={cerrarModalBorrado}
+                        onClick={() => setMostrarModalBorrado(false)}
                         disabled={loadingBorrado}
-                        className={styles.botonCancelar}
+                        className={styles.secondaryButton}
                       >
                         Cancelar
                       </button>
@@ -780,26 +835,46 @@ const RecibirPedido = () => {
 
             {resumenBorrado && (
               <div className={styles.modalOverlay}>
-                <div className={styles.modal}>
+                <div className={styles.modal} style={{ maxWidth: '800px' }}>
                   <h4>Resumen de Producto Borrado</h4>
                   <div className={styles.modalBody}>
                     <div className={styles.successAlert}>
                       <h5>✅ Producto eliminado correctamente</h5>
+                      <p>Se ha generado un registro PDF de esta operación.</p>
                     </div>
 
-                    <div className={styles.productoInfo}>
+                    <div className={styles.modalInfo}>
                       <p><strong>Producto:</strong> {resumenBorrado.producto}</p>
                       <p><strong>Código:</strong> {resumenBorrado.codigo}</p>
                       <p><strong>Cantidad eliminada:</strong> {resumenBorrado.cantidad} unidades</p>
-                      <p><strong>Traspaso:</strong> {pedidoId}</p>
+                      <p><strong>Usuario que realizó la acción:</strong> {resumenBorrado.usuario}</p>
+                      <p><strong>Fecha y hora:</strong> {resumenBorrado.fecha}</p>
                       <p><strong>Estado:</strong> {resumenBorrado.traspasoCompleto ? 
                         'Traspaso completo eliminado' : 'Producto eliminado (traspaso permanece)'}</p>
                     </div>
 
                     <div className={styles.modalFooter}>
                       <button 
-                        onClick={cerrarResumenBorrado}
-                        className={styles.botonConfirmar}
+                        onClick={() => {
+                          if (resumenBorrado.pdfBase64) {
+                            const pdfWindow = window.open();
+                            pdfWindow.document.write(`
+                              <iframe 
+                                width='100%' 
+                                height='100%' 
+                                src='data:application/pdf;base64,${resumenBorrado.pdfBase64}'
+                                style="border: none;"
+                              ></iframe>
+                            `);
+                          }
+                        }}
+                        className={styles.secondaryButton}
+                      >
+                        Ver PDF nuevamente
+                      </button>
+                      <button 
+                        onClick={() => setResumenBorrado(null)}
+                        className={styles.primaryButton}
                       >
                         Aceptar
                       </button>
